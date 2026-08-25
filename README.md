@@ -153,7 +153,7 @@ npm run check
 npm run smoke
 ```
 
-`npm run check` runs lint, the regression suite, and a production build. `npm run smoke` starts the production build with an isolated temporary data directory and verifies the health endpoint, rendered home page, and localhost request boundary. GitHub Actions runs the documented setup, full check, and smoke path on Linux, macOS, and Windows.
+`npm run check` runs lint, the regression suite, and a production build. `npm run smoke` exercises the same one-command launcher with an isolated temporary data directory and verifies the health endpoint, rendered home page, generic first-run state, and localhost request boundary. GitHub Actions runs the documented setup, full check, and launcher smoke path on Linux, macOS, and Windows.
 
 ## Private connector bridge
 

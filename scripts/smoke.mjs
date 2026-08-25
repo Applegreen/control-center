@@ -10,12 +10,9 @@ const dataDirectory = await mkdtemp(
 const server = spawn(
   process.execPath,
   [
-    path.join("node_modules", "next", "dist", "bin", "next"),
-    "start",
-    "--hostname",
-    "127.0.0.1",
-    "--port",
-    String(port),
+    path.join("scripts", "launch.mjs"),
+    "--no-open",
+    `--port=${port}`,
   ],
   {
     cwd: process.cwd(),
@@ -100,6 +97,8 @@ try {
     "/api/live/industry",
     "/api/live/mentions",
     "/api/live/audience",
+    "/api/live/newsletters",
+    "/api/brief",
   ]) {
     const live = await getJson(pathname);
     if (live.configured !== false || live.items?.length !== 0) {
@@ -114,7 +113,7 @@ try {
       `Foreign Host probe returned HTTP ${blocked.status}, expected 403.`,
     );
   console.log(
-    "Production smoke test passed: health, home page, generic empty first run, and localhost boundary.",
+    "Golden-path launcher smoke passed: health, home page, generic empty first run, and localhost boundary.",
   );
 } finally {
   server.kill("SIGTERM");

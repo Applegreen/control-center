@@ -84,10 +84,13 @@ async function firstFeed(candidates: string[], sourceName: string, sourceUrl: st
     const items = feedItemsInSourcePath(parseFeed(response.text, sourceName, response.finalUrl), sourceUrl);
     return { endpoint: response.finalUrl, items };
   }));
+  let emptyFeed: { endpoint: string; items: LiveStory[] } | null = null;
   for (const attempt of attempts) {
-    if (attempt.status === "fulfilled") return attempt.value;
+    if (attempt.status !== "fulfilled") continue;
+    if (attempt.value.items.length) return attempt.value;
+    emptyFeed ||= attempt.value;
   }
-  return null;
+  return emptyFeed;
 }
 
 async function readSitemap(candidate: string) {

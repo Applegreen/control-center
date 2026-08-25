@@ -62,6 +62,7 @@ import type {
   WorkspaceStateResponse,
 } from "@/lib/types";
 import { isDailyBriefItemInWindow } from "@/lib/brief-window";
+import { sortIndustryItems, type IndustrySortOrder } from "@/lib/industry";
 
 type Tab =
   | "today"
@@ -781,6 +782,7 @@ function IndustryView({
     useLiveData<LiveFeedResponse>("/api/live/industry");
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"active" | "history" | "archive">("active");
+  const [sortOrder, setSortOrder] = useState<IndustrySortOrder>("newest");
   const archive = useArchiveAction("industry", refresh);
   const sourceItems =
     view === "archive"
@@ -788,10 +790,13 @@ function IndustryView({
       : view === "history"
         ? data?.historyItems || []
         : data?.items || [];
-  const items = sourceItems.filter((item) =>
-    `${item.title} ${item.summary} ${item.source}`
-      .toLowerCase()
-      .includes(query.toLowerCase()),
+  const items = sortIndustryItems(
+    sourceItems.filter((item) =>
+      `${item.title} ${item.summary} ${item.source}`
+        .toLowerCase()
+        .includes(query.toLowerCase()),
+    ),
+    sortOrder,
   );
   const kindLabel = (item: LiveStory) =>
     item.kind === "sitemap"
@@ -849,15 +854,31 @@ function IndustryView({
                 Archived {data.archiveCount || 0}
               </button>
             </div>
-            <label className="search-box">
-              <Search size={15} />
-              <input
-                aria-label="Search industry updates"
-                placeholder="Search updates"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </label>
+            <div className="toolbar-actions">
+              <label className="sort-control">
+                <span>Sort</span>
+                <select
+                  aria-label="Sort industry updates"
+                  value={sortOrder}
+                  onChange={(event) =>
+                    setSortOrder(event.target.value as IndustrySortOrder)
+                  }
+                >
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                  <option value="watched">Watched sites first</option>
+                </select>
+              </label>
+              <label className="search-box">
+                <Search size={15} />
+                <input
+                  aria-label="Search industry updates"
+                  placeholder="Search updates"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </label>
+            </div>
           </div>
           {data.sourceStatuses?.length ? (
             <div className="source-status-grid reveal delay-1">

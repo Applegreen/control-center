@@ -1,5 +1,27 @@
 import type { LiveStory } from "@/lib/types";
 
+export type IndustrySortOrder = "newest" | "oldest" | "watched";
+
+function storyTimestamp(item: LiveStory) {
+  const timestamp = Date.parse(item.publishedAt);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+export function sortIndustryItems(items: LiveStory[], order: IndustrySortOrder) {
+  const sorted = [...items];
+  sorted.sort((left, right) => {
+    if (order === "watched") {
+      const sourcePriority =
+        Number(left.kind === "topic") - Number(right.kind === "topic");
+      if (sourcePriority) return sourcePriority;
+    }
+    const dateOrder = storyTimestamp(right) - storyTimestamp(left);
+    if (dateOrder) return order === "oldest" ? -dateOrder : dateOrder;
+    return left.id.localeCompare(right.id);
+  });
+  return sorted;
+}
+
 export function splitIndustryLibrary(items: LiveStory[]) {
   const archivedItems: LiveStory[] = [];
   const historyItems: LiveStory[] = [];

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
-import { combineIndustryDiscoveries, prioritizeIndustryItems, splitIndustryLibrary } from "../lib/industry";
+import { combineIndustryDiscoveries, prioritizeIndustryItems, sortIndustryItems, splitIndustryLibrary } from "../lib/industry";
 import {
   filterSitemapEntriesForSource,
   isUrlWithinSourcePath,
@@ -97,6 +97,19 @@ test("manual archives are separate from expired and out-of-scope history", () =>
 
   assert.deepEqual(archivedItems.map((item) => item.id), ["manual"]);
   assert.deepEqual(historyItems.map((item) => item.id), ["expired", "removed-source"]);
+});
+
+test("industry updates support chronological and watched-source ordering", () => {
+  const items = [
+    { id: "topic-new", title: "Topic new", summary: "", url: "https://news.example/new", source: "News", publishedAt: "2026-08-24T14:00:00Z", kind: "topic" as const },
+    { id: "watched-old", title: "Watched old", summary: "", url: "https://watched.example/old", source: "Watched", publishedAt: "2026-08-24T12:00:00Z", kind: "feed" as const },
+    { id: "watched-new", title: "Watched new", summary: "", url: "https://watched.example/new", source: "Watched", publishedAt: "2026-08-24T13:00:00Z", kind: "sitemap" as const },
+  ];
+
+  assert.deepEqual(sortIndustryItems(items, "newest").map((item) => item.id), ["topic-new", "watched-new", "watched-old"]);
+  assert.deepEqual(sortIndustryItems(items, "oldest").map((item) => item.id), ["watched-old", "watched-new", "topic-new"]);
+  assert.deepEqual(sortIndustryItems(items, "watched").map((item) => item.id), ["watched-new", "watched-old", "topic-new"]);
+  assert.deepEqual(items.map((item) => item.id), ["topic-new", "watched-old", "watched-new"]);
 });
 
 test("RSS 1.0 RDF items and dc:date are parsed as feed stories", () => {

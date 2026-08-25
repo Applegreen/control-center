@@ -8,6 +8,7 @@ import { combineIndustryDiscoveries, prioritizeIndustryItems, splitIndustryLibra
 import { collectionScope } from "@/lib/collection-scope";
 
 export const runtime = "nodejs";
+const INDUSTRY_RESPONSE_LIMIT = 500;
 
 declare global {
   var controlCenterIndustryQueue: Promise<void> | undefined;
@@ -97,7 +98,7 @@ async function collectIndustry() {
   const currentItems = combineIndustryDiscoveries(siteItems, topicItems);
   const saved = syncContentItems<LiveStory>("industry", currentItems, { freshSince, freshUntil, activeScopes });
   const { archivedItems, historyItems } = splitIndustryLibrary(saved.archived);
-  return Response.json({ configured: true, checkedAt, items: prioritizeIndustryItems(saved.active, 100), archivedItems, archiveCount: archivedItems.length, historyItems, historyCount: historyItems.length, errors, sourceStatuses, freshnessHours: INDUSTRY_FRESHNESS_HOURS } satisfies LiveFeedResponse);
+  return Response.json({ configured: true, checkedAt, items: prioritizeIndustryItems(saved.active, INDUSTRY_RESPONSE_LIMIT), archivedItems, archiveCount: archivedItems.length, historyItems, historyCount: historyItems.length, errors, sourceStatuses, freshnessHours: INDUSTRY_FRESHNESS_HOURS } satisfies LiveFeedResponse);
 }
 
 export async function GET() {

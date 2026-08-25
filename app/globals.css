@@ -145,6 +145,10 @@ main { min-height: calc(100vh - 130px); }
 .filter-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .filter-row button, .segmented button { padding: 8px 11px; border: 1px solid var(--line); border-radius: 20px; background: rgba(251,250,246,.45); color: var(--muted); font-size: 9px; cursor: pointer; }
 .filter-row button.active, .segmented button.active { border-color: var(--ink); background: var(--ink); color: white; }
+.toolbar-actions { display: flex; align-items: center; gap: 8px; }
+.sort-control { height: 38px; display: flex; align-items: center; gap: 7px; padding: 0 9px 0 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--muted); font-size: 9px; }
+.sort-control span { font-family: var(--mono); font-size: 7px; letter-spacing: .06em; text-transform: uppercase; }
+.sort-control select { border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 9px; }
 .search-box { width: 220px; display: flex; align-items: center; gap: 7px; padding: 0 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--muted); }
 .search-box input { width: 100%; height: 36px; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 10px; }
 .intel-layout, .newsletter-layout { display: grid; grid-template-columns: minmax(0,1fr) 290px; gap: 18px; align-items: start; }
@@ -229,6 +233,11 @@ footer { width: min(1380px, calc(100vw - 48px)); min-height: 58px; display: flex
 }
 @media (max-width: 620px) {
   .top-actions .icon-button { display: none; }.brand-lockup small { display: none; }.page-heading { align-items: flex-start; flex-direction: column; margin-bottom: 25px; }.page-heading h1 { font-size: 42px; }.page-heading > .button, .page-heading > .segmented { width: 100%; }.brief-banner { grid-template-columns: auto 1fr; }.brief-banner > button { display: none; }.today-grid .panel { padding: 19px; }.pulse-stats { grid-template-columns: 1fr; }.source-strip { justify-content: flex-start; }.toolbar, .shelf-controls { align-items: stretch; flex-direction: column; }.search-box { width: 100%; }.story-card { grid-template-columns: 42px 1fr; }.story-body { padding: 18px 16px; }.story-meta .label { margin-left: 0; }.intel-aside, .newsletter-aside { grid-template-columns: 1fr; }.mention-summary { grid-template-columns: 1fr 1fr; }.mention-summary > div:nth-child(3) { grid-column: 1 / -1; }.mention-card { grid-template-columns: auto 1fr; }.mention-actions { grid-column: 2; }.mention-content > p { font-size: 17px; }.reminder-grid { grid-template-columns: 1fr; }.quick-form { grid-template-columns: 1fr; align-items: stretch; }.quick-form .form-icon { display: none; }.quick-form label:nth-of-type(2) { grid-column: auto; }.quick-form .icon-button { position: absolute; right: 23px; }.audience-hero { grid-template-columns: 1fr; padding: 24px; }.audience-chart { display: none; }.platform-head { display: none; }.platform-row { grid-template-columns: 1fr .7fr; gap: 12px; padding: 15px; }.platform-row .sparkline { display: none; }.platform-growth { align-items: flex-end; }.newsletter-status { grid-template-columns: auto 1fr; }.newsletter-status button { grid-column: 2; }.newsletter-card { grid-template-columns: auto 1fr; }.mark-read { grid-column: 2; justify-self: end; }.newsletter-foot { flex-wrap: wrap; }.newsletter-foot button:first-of-type { margin-left: 0; }.task-form { grid-template-columns: 1fr; }.task-fields { flex-direction: column; }.task-fields label { width: 100%; }.task-list-head { display: none; }.task-row { grid-template-columns: 28px 1fr auto; gap: 10px; padding: 15px; }.task-row > .label { grid-column: 2; }.repeat-text { grid-column: 2; }.more-button { grid-column: 3; grid-row: 1; }.integration-grid { grid-template-columns: 1fr; }.architecture-note { align-items: flex-start; flex-direction: column; }footer { width: calc(100% - 32px); }footer small { display: none; }
+}
+
+@media (max-width: 620px) {
+  .toolbar-actions { width: 100%; align-items: stretch; flex-direction: column; }
+  .sort-control { justify-content: space-between; }
 }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }

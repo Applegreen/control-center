@@ -8,6 +8,7 @@ loadLocalEnvironment();
 const dataDirectory = resolveDataDirectory();
 const settingsPath = path.join(dataDirectory, "settings.json");
 const databasePath = path.join(dataDirectory, "control-center.sqlite");
+const audienceSnapshotsPath = path.join(dataDirectory, "snapshots.json");
 let healthy = true;
 
 console.log(`Node.js: ${process.versions.node}`);
@@ -31,6 +32,31 @@ if (existsSync(settingsPath)) {
   }
 } else {
   console.log("Settings: first run (no settings file yet)");
+}
+
+if (existsSync(audienceSnapshotsPath)) {
+  try {
+    const snapshots = JSON.parse(await readFile(audienceSnapshotsPath, "utf8"));
+    if (!snapshots || typeof snapshots !== "object" || Array.isArray(snapshots))
+      throw new Error("snapshot history must be an object");
+    for (const snapshot of Object.values(snapshots)) {
+      if (
+        !snapshot ||
+        typeof snapshot !== "object" ||
+        typeof snapshot.total !== "number" ||
+        !Number.isFinite(snapshot.total) ||
+        typeof snapshot.checkedAt !== "string"
+      ) throw new Error("snapshot history contains an invalid entry");
+    }
+    console.log(`Audience history: readable (${Object.keys(snapshots).length} snapshots)`);
+  } catch (error) {
+    healthy = false;
+    console.error(
+      `Audience history: could not be read safely (${error instanceof Error ? error.message : "unknown error"})`,
+    );
+  }
+} else {
+  console.log("Audience history: first run (no snapshots yet)");
 }
 
 if (existsSync(databasePath)) {

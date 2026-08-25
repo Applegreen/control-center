@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -55,6 +55,40 @@ test("doctor reports a corrupt workspace without changing the saved rows", async
       "not-json",
     );
     readback.close();
+  } finally {
+    await rm(dataDirectory, { recursive: true, force: true });
+  }
+});
+
+test("doctor reports corrupt audience history without replacing it", async () => {
+  const dataDirectory = await mkdtemp(
+    path.join(os.tmpdir(), "control-center-doctor-audience-test-"),
+  );
+  const snapshotsPath = path.join(dataDirectory, "snapshots.json");
+  const corruptHistory = JSON.stringify({
+    account: { total: "many", checkedAt: "today" },
+  });
+  await writeFile(snapshotsPath, corruptHistory);
+
+  try {
+    const result = await new Promise<{
+      code: string | number | null | undefined;
+      output: string;
+    }>((resolve) => {
+      execFile(
+        process.execPath,
+        [path.resolve("scripts/doctor.mjs")],
+        {
+          cwd: process.cwd(),
+          env: { ...process.env, CONTROL_CENTER_DATA_DIR: dataDirectory },
+        },
+        (error, stdout, stderr) =>
+          resolve({ code: error?.code, output: `${stdout}${stderr}` }),
+      );
+    });
+    assert.equal(result.code, 1);
+    assert.match(result.output, /Audience history: could not be read safely/i);
+    assert.equal(await readFile(snapshotsPath, "utf8"), corruptHistory);
   } finally {
     await rm(dataDirectory, { recursive: true, force: true });
   }

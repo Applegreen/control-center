@@ -1,9 +1,26 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { readFile, mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 
-const port = 3210;
+async function availableLoopbackPort() {
+  const probe = createServer();
+  await new Promise((resolve, reject) => {
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", resolve);
+  });
+  const address = probe.address();
+  if (!address || typeof address === "string")
+    throw new Error("Could not allocate an isolated smoke-test port.");
+  await new Promise((resolve) => probe.close(resolve));
+  return address.port;
+}
+
+const port = await availableLoopbackPort();
+const packageMetadata = JSON.parse(
+  await readFile(new URL("../package.json", import.meta.url), "utf8"),
+);
 const dataDirectory = await mkdtemp(
   path.join(os.tmpdir(), "control-center-smoke-"),
 );
@@ -59,7 +76,10 @@ try {
   if (!response?.ok)
     throw new Error(`Health endpoint did not become ready.\n${output}`);
   const health = await response.json();
-  if (health.service !== "control-center")
+  if (
+    health.service !== "control-center" ||
+    health.version !== packageMetadata.version
+  )
     throw new Error("Health endpoint returned the wrong service identity.");
   const home = await fetch(`http://127.0.0.1:${port}/`);
   if (!home.ok || !(await home.text()).includes("Control Center"))
@@ -112,6 +132,8 @@ try {
     throw new Error(
       `Foreign Host probe returned HTTP ${blocked.status}, expected 403.`,
     );
+  if (server.exitCode !== null || server.signalCode !== null)
+    throw new Error(`The launcher exited during smoke verification.\n${output}`);
   console.log(
     "Golden-path launcher smoke passed: health, home page, generic empty first run, and localhost boundary.",
   );

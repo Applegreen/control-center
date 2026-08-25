@@ -2,11 +2,15 @@
 
 ## 0.2.1 - 2026-08-25
 
-- Split automatically expired Industry history from items a user manually archived, added deterministic newest/oldest/watched-site sorting, and stopped stale feed backlogs from appearing as new discoveries.
-- Tightened seven-day mention matching so provider query terms never count as observed evidence and ambiguous names require configured identity corroboration in strict mode.
-- Persisted follower and subscriber changes between successful audience checks while keeping post, video, and thread counts as separate content metadata.
-- Added immutable dated completion records for repeating tasks while advancing the active series to its next due date.
-- Expanded production smoke coverage for personalized-data-free first runs and verified the one-command launcher from a clean clone with an unrelated industry niche.
+- Split automatically expired Industry history from items a user manually archived, added deterministic newest/oldest/watched-site sorting across the complete active set, and stopped stale or undated feed backlogs from appearing as new discoveries.
+- Improved generic RSS/Atom and sitemap discovery, accepted valid empty feeds, exposed partial failures instead of false live status, and removed silent result caps that could hide current Industry or Mention items.
+- Tightened seven-day mention matching so provider query terms never count as observed evidence, configured handles remain exact identities, and ambiguous names require configured corroboration in strict mode.
+- Persisted follower and subscriber changes between successful audience checks, kept the comparison tied to the same primary metric, and separated post, video, and thread counts as content metadata.
+- Made corrupt Audience history fail closed and visible in `npm run doctor` instead of silently replacing a verified baseline.
+- Added immutable dated completion records for repeating tasks, guarded against double completion, preserved monthly schedule anchors, and made task writes immediately recoverable after a reload or process interruption.
+- Kept fresh clones isolated from another checkout's browser state while retaining a safe migration path for existing repo-local installs.
+- Pinned public-source requests to the DNS addresses that passed network validation, revalidated every redirect, and applied the same protection to LinkedIn profile checks.
+- Expanded cross-platform production smoke coverage for personalized-data-free first runs, every live dashboard area, and the documented one-command launcher.
 
 ## 0.2.0 - 2026-08-25
 

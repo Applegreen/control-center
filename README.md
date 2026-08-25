@@ -75,6 +75,8 @@ Public pages are checked first and do not require platform API keys. Optional of
 
 Public collection is provider-controlled and best effort. A platform can change or block signed-out metadata without notice. A failed check is shown as unavailable or limited, never as a false zero; a prior verified value is clearly labeled as last known. Combined totals are sums across platforms, not deduplicated people.
 
+Follower and subscriber growth is measured against the preceding successful check and remains visible on cached page loads. Post, video, and thread counts are shown only as separate content metadata; they are never used as audience growth.
+
 ## Newsletter Gmail
 
 The newsletter mailbox can be completely separate from any Gmail account used elsewhere.

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { audienceGrowthFromSnapshot, combineAudienceChanges, nextAudienceSnapshot } from "../lib/audience-growth";
 import {
   audienceAccountFingerprint,
   audienceCacheWindowMs,
@@ -23,6 +24,42 @@ test("automatic public checks use a short cache while LinkedIn uses a daily cach
   assert.equal(audienceCacheWindowMs("instagram"), 60 * 60 * 1000);
   assert.equal(audienceCacheWindowMs("youtube"), 60 * 60 * 1000);
   assert.equal(audienceCacheWindowMs("linkedin"), 24 * 60 * 60 * 1000);
+});
+
+test("audience growth persists follower deltas independently from content counts", () => {
+  const first = nextAudienceSnapshot({
+    total: 100,
+    checkedAt: "2026-08-24T12:00:00Z",
+    fingerprint: "youtube:northstar",
+    secondaryLabel: "videos",
+    secondaryValue: 50,
+  });
+  const second = nextAudienceSnapshot({
+    total: 112,
+    checkedAt: "2026-08-25T12:00:00Z",
+    fingerprint: "youtube:northstar",
+    secondaryLabel: "videos",
+    secondaryValue: 51,
+  }, first);
+
+  assert.deepEqual(audienceGrowthFromSnapshot(first), {
+    change: null,
+    changeComparedAt: undefined,
+  });
+  assert.deepEqual(audienceGrowthFromSnapshot(second), {
+    change: 12,
+    changeComparedAt: "2026-08-24T12:00:00Z",
+  });
+  assert.equal(second.secondaryValue, 51);
+  assert.equal(audienceGrowthFromSnapshot(second).change, 12);
+  assert.deepEqual(combineAudienceChanges([{ change: null }, { change: null }]), {
+    change: 0,
+    comparisonCount: 0,
+  });
+  assert.deepEqual(combineAudienceChanges([{ change: 12 }, { change: -2 }, { change: null }]), {
+    change: 10,
+    comparisonCount: 2,
+  });
 });
 
 test("social profile validation accepts account URLs and rejects content URLs", () => {

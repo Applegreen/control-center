@@ -137,6 +137,7 @@ export type AudienceMetric = {
   handle: string;
   total: number | null;
   change: number | null;
+  changeComparedAt?: string;
   secondaryLabel?: string;
   secondaryValue?: number;
   checkedAt: string;

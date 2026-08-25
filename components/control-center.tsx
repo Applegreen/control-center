@@ -62,6 +62,7 @@ import type {
   WorkspaceStateResponse,
 } from "@/lib/types";
 import { isDailyBriefItemInWindow } from "@/lib/brief-window";
+import { combineAudienceChanges } from "@/lib/audience-growth";
 import { sortIndustryItems, type IndustrySortOrder } from "@/lib/industry";
 
 type Tab =
@@ -1383,14 +1384,14 @@ function AudienceView({ openSettings }: { openSettings: () => void }) {
   const items = data?.items || [];
   const successful = items.filter((item) => !item.error);
   const total = successful.reduce((sum, item) => sum + (item.total ?? 0), 0);
-  const change = successful.reduce((sum, item) => sum + (item.change || 0), 0);
+  const { change, comparisonCount } = combineAudienceChanges(successful);
   return (
     <div className="view">
       <PageHeading
         eyebrow="Keyless audience ledger"
         title={
           successful.length
-            ? `${formatNumber(total)} followers across platforms`
+            ? `${formatNumber(total)} total audience across platforms`
             : "Audience"
         }
         description="Best-effort public totals for the exact profile URLs configured in Settings."
@@ -1436,10 +1437,15 @@ function AudienceView({ openSettings }: { openSettings: () => void }) {
             </div>
             <div className="growth-badge">
               <b>
-                {change >= 0 ? "+" : ""}
-                {formatNumber(change)}
+                {comparisonCount
+                  ? `${change >= 0 ? "+" : ""}${formatNumber(change)}`
+                  : "Baseline"}
               </b>
-              <span>since last check</span>
+              <span>
+                {comparisonCount
+                  ? `since prior check · ${comparisonCount} compared`
+                  : "no comparison yet"}
+              </span>
             </div>
           </div>
           {error && <ErrorNotice errors={[error]} />}
@@ -1466,13 +1472,20 @@ function AudienceView({ openSettings }: { openSettings: () => void }) {
                       <small>{item.handle}</small>
                     </div>
                   </div>
-                  <strong>
-                    {item.error
-                      ? item.total === null
-                        ? "—"
-                        : formatNumber(item.total)
-                      : formatNumber(item.total ?? 0)}
-                  </strong>
+                  <div className="platform-total">
+                    <strong>
+                      {item.error
+                        ? item.total === null
+                          ? "—"
+                          : formatNumber(item.total)
+                        : formatNumber(item.total ?? 0)}
+                    </strong>
+                    <small>
+                      {item.secondaryLabel && item.secondaryValue !== undefined
+                        ? `${formatNumber(item.secondaryValue)} ${item.secondaryLabel}`
+                        : "Followers / subscribers"}
+                    </small>
+                  </div>
                   <div className="platform-growth">
                     <b>
                       {item.error && item.stale
@@ -1486,10 +1499,11 @@ function AudienceView({ openSettings }: { openSettings: () => void }) {
                         ? item.lastSuccessfulAt
                           ? `Last verified ${formatDate(item.lastSuccessfulAt)}`
                           : item.error
-                        : item.secondaryLabel &&
-                            item.secondaryValue !== undefined
-                          ? `${formatNumber(item.secondaryValue)} ${item.secondaryLabel}`
-                          : item.source || "Public profile"}
+                        : item.change === null
+                          ? "No comparison yet"
+                          : item.changeComparedAt
+                            ? `vs ${formatDate(item.changeComparedAt)}`
+                            : "vs previous check"}
                     </small>
                   </div>
                   {item.error ? (

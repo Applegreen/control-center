@@ -3,6 +3,11 @@ import "server-only";
 import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import type { AudienceMetric } from "@/lib/types";
+import {
+  audienceGrowthFromSnapshot,
+  nextAudienceSnapshot,
+  type AudienceSnapshot,
+} from "@/lib/audience-growth";
 import type { StoredSettings } from "@/lib/server/settings";
 import { snapshotsPath } from "@/lib/server/settings";
 import { assertPublicUrl, safeFetchText } from "@/lib/server/safe-fetch";
@@ -22,15 +27,7 @@ import {
 } from "@/lib/public-metrics";
 
 type Account = StoredSettings["audience"]["accounts"][number];
-type SnapshotMap = Record<string, {
-  total: number;
-  checkedAt: string;
-  fingerprint?: string;
-  handle?: string;
-  secondaryLabel?: string;
-  secondaryValue?: number;
-  source?: string;
-}>;
+type SnapshotMap = Record<string, AudienceSnapshot>;
 type CollectedAccount = { total: number; handle: string; secondaryLabel?: string; secondaryValue?: number; source: string };
 type PublicProviderErrorCode = "not_found" | "provider_blocked" | "provider_unavailable";
 declare global {
@@ -309,13 +306,14 @@ async function collectAccount(account: Account) {
 function cachedMetric(account: Account, prior: SnapshotMap[string]): AudienceMetric {
   const platformName = account.platform[0].toUpperCase() + account.platform.slice(1);
   const cacheLabel = account.platform === "linkedin" ? "daily cache" : "cached";
+  const growth = audienceGrowthFromSnapshot(prior);
   return {
     id: account.id,
     platform: account.platform,
     label: account.label,
     handle: prior.handle || usernameFor(account),
     total: prior.total,
-    change: null,
+    ...growth,
     secondaryLabel: prior.secondaryLabel,
     secondaryValue: prior.secondaryValue,
     checkedAt: prior.checkedAt,
@@ -337,7 +335,7 @@ async function collectAudienceNow(settings: StoredSettings, forceRefresh: boolea
     }
     try {
       const current = await collectAccount(account);
-      next[account.id] = {
+      const snapshot = nextAudienceSnapshot({
         total: current.total,
         checkedAt,
         fingerprint,
@@ -345,8 +343,9 @@ async function collectAudienceNow(settings: StoredSettings, forceRefresh: boolea
         secondaryLabel: current.secondaryLabel,
         secondaryValue: current.secondaryValue,
         source: current.source,
-      };
-      return { id: account.id, platform: account.platform, label: account.label, handle: current.handle, total: current.total, change: prior === undefined ? null : current.total - prior.total, secondaryLabel: current.secondaryLabel, secondaryValue: current.secondaryValue, checkedAt, source: current.source };
+      }, prior);
+      next[account.id] = snapshot;
+      return { id: account.id, platform: account.platform, label: account.label, handle: current.handle, total: current.total, ...audienceGrowthFromSnapshot(snapshot), secondaryLabel: current.secondaryLabel, secondaryValue: current.secondaryValue, checkedAt, source: current.source };
     } catch (error) {
       return { id: account.id, platform: account.platform, label: account.label, handle: account.username || account.profileUrl || account.accountId, total: prior?.total ?? null, change: null, checkedAt, error: error instanceof Error ? error.message : "Unknown provider error", stale: Boolean(prior), lastSuccessfulAt: prior?.checkedAt };
     }

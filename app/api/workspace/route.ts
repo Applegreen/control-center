@@ -57,8 +57,15 @@ function cleanTasks(value: unknown): TaskItem[] {
 }
 
 export async function GET() {
-  const database = getDatabase();
-  return Response.json({ ...readWorkspaceState(database), initialized: hasWorkspaceState(database) });
+  try {
+    const database = getDatabase();
+    return Response.json({ ...readWorkspaceState(database), initialized: hasWorkspaceState(database) });
+  } catch {
+    return Response.json(
+      { error: "Tasks and reminders could not be read safely. Restore the local database from a backup before making changes." },
+      { status: 500 },
+    );
+  }
 }
 
 export async function PUT(request: Request) {

@@ -16,13 +16,20 @@ export function initializeWorkspaceStore(database: DatabaseSync) {
 
 export function readWorkspaceState(database: DatabaseSync): WorkspaceState {
   const rows = database.prepare("SELECT state_key, payload_json FROM workspace_state WHERE state_key IN ('reminders', 'tasks')").all() as unknown as Array<{ state_key: keyof WorkspaceState; payload_json: string }>;
+  if (rows.length === 1) {
+    throw new Error("The saved workspace is incomplete. Restore it from a backup before making changes.");
+  }
   const state = structuredClone(emptyWorkspace);
   for (const row of rows) {
     try {
       const parsed = JSON.parse(row.payload_json);
-      if (Array.isArray(parsed)) state[row.state_key] = parsed;
-    } catch {
-      // Keep the other local workspace data readable if one row is corrupt.
+      if (!Array.isArray(parsed)) throw new Error("Workspace rows must contain lists.");
+      state[row.state_key] = parsed;
+    } catch (error) {
+      throw new Error(
+        `The saved ${row.state_key} data is corrupt. Restore it from a backup before making changes.`,
+        { cause: error },
+      );
     }
   }
   return state;

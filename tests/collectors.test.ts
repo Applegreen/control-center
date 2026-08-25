@@ -134,7 +134,7 @@ test("the local archive library does not hide history after 500 items", () => {
   assert.equal(listContentItems<LiveStory>(database, "mentions").archived.length, 501);
 });
 
-test("reminders and tasks persist in SQLite and tolerate one corrupt row", () => {
+test("reminders and tasks persist in SQLite and fail closed on a corrupt row", () => {
   const database = initializeWorkspaceStore(new DatabaseSync(":memory:"));
   assert.equal(hasWorkspaceState(database), false);
   writeWorkspaceState(database, {
@@ -144,7 +144,19 @@ test("reminders and tasks persist in SQLite and tolerate one corrupt row", () =>
   assert.equal(hasWorkspaceState(database), true);
   assert.equal(readWorkspaceState(database).reminders[0].title, "Read later");
   database.prepare("UPDATE workspace_state SET payload_json = ? WHERE state_key = 'tasks'").run("not-json");
-  const recovered = readWorkspaceState(database);
-  assert.equal(recovered.reminders.length, 1);
-  assert.deepEqual(recovered.tasks, []);
+  assert.throws(
+    () => readWorkspaceState(database),
+    /saved tasks data is corrupt/i,
+  );
+  assert.equal(
+    database.prepare("SELECT payload_json FROM workspace_state WHERE state_key = 'reminders'").get()?.payload_json,
+    JSON.stringify([{ id: "reminder-1", type: "Link", title: "Read later", source: "example.com", note: "Useful", accent: "teal" }]),
+  );
+});
+
+test("workspace reads fail closed when only one canonical row exists", () => {
+  const database = initializeWorkspaceStore(new DatabaseSync(":memory:"));
+  database.prepare("INSERT INTO workspace_state (state_key, payload_json, updated_at) VALUES (?, ?, ?)")
+    .run("tasks", "[]", "2026-08-25T12:00:00Z");
+  assert.throws(() => readWorkspaceState(database), /saved workspace is incomplete/i);
 });

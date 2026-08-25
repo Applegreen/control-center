@@ -32,6 +32,7 @@ import {
   Menu,
   MessageSquare,
   Music2,
+  Moon,
   Newspaper,
   Plus,
   Radio,
@@ -40,6 +41,7 @@ import {
   Settings2,
   ShieldCheck,
   Sparkles,
+  Sun,
   Trash2,
   TrendingUp,
   Users,
@@ -246,6 +248,18 @@ function readLegacyList<T>(key: string): T[] {
 }
 
 const WORKSPACE_RECOVERY_KEY = "control-center-v3-workspace-recovery";
+const THEME_STORAGE_KEY = "control-center-theme";
+
+function toggleColorTheme() {
+  const root = document.documentElement;
+  const nextTheme = root.dataset.theme === "light" ? "dark" : "light";
+  root.dataset.theme = nextTheme;
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+  } catch {
+    // The selected theme still applies for this session when storage is unavailable.
+  }
+}
 
 type WorkspaceRecovery = {
   id: string;
@@ -3670,6 +3684,15 @@ export function ControlCenter() {
           <button className="status-button" onClick={() => openSettings()}>
             <i className={configuredCount === 4 ? "ready" : ""} />
             <span>{configuredCount}/4 live</span>
+          </button>
+          <button
+            className="icon-button theme-toggle"
+            onClick={toggleColorTheme}
+            aria-label="Toggle color theme"
+            title="Toggle color theme"
+          >
+            <Sun className="theme-icon-light" size={15} aria-hidden="true" />
+            <Moon className="theme-icon-dark" size={15} aria-hidden="true" />
           </button>
           <button
             className={classNames(

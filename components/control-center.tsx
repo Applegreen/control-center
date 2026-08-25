@@ -1499,9 +1499,14 @@ function AudienceView({ openSettings }: { openSettings: () => void }) {
                         : formatNumber(item.total ?? 0)}
                     </strong>
                     <small>
-                      {item.secondaryLabel && item.secondaryValue !== undefined
-                        ? `${formatNumber(item.secondaryValue)} ${item.secondaryLabel}`
-                        : "Followers / subscribers"}
+                      {[
+                        item.primaryLabel
+                          ? `${item.primaryLabel[0].toUpperCase()}${item.primaryLabel.slice(1)}`
+                          : "Audience total",
+                        item.secondaryLabel && item.secondaryValue !== undefined
+                          ? `${formatNumber(item.secondaryValue)} ${item.secondaryLabel}`
+                          : "",
+                      ].filter(Boolean).join(" · ")}
                     </small>
                   </div>
                   <div className="platform-growth">

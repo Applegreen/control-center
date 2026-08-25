@@ -31,6 +31,7 @@ test("audience growth persists follower deltas independently from content counts
     total: 100,
     checkedAt: "2026-08-24T12:00:00Z",
     fingerprint: "youtube:northstar",
+    primaryLabel: "subscribers",
     secondaryLabel: "videos",
     secondaryValue: 50,
   });
@@ -38,6 +39,7 @@ test("audience growth persists follower deltas independently from content counts
     total: 112,
     checkedAt: "2026-08-25T12:00:00Z",
     fingerprint: "youtube:northstar",
+    primaryLabel: "subscribers",
     secondaryLabel: "videos",
     secondaryValue: 51,
   }, first);
@@ -59,6 +61,22 @@ test("audience growth persists follower deltas independently from content counts
   assert.deepEqual(combineAudienceChanges([{ change: 12 }, { change: -2 }, { change: null }]), {
     change: 10,
     comparisonCount: 2,
+  });
+
+  const changedMetric = nextAudienceSnapshot({
+    total: 80,
+    checkedAt: "2026-08-26T12:00:00Z",
+    fingerprint: "facebook:northstar",
+    primaryLabel: "page likes",
+  }, {
+    total: 112,
+    checkedAt: "2026-08-25T12:00:00Z",
+    fingerprint: "facebook:northstar",
+    primaryLabel: "followers",
+  });
+  assert.deepEqual(audienceGrowthFromSnapshot(changedMetric), {
+    change: null,
+    changeComparedAt: undefined,
   });
 });
 

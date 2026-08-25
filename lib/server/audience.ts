@@ -2,7 +2,7 @@ import "server-only";
 
 import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
-import type { AudienceMetric } from "@/lib/types";
+import type { AudienceMetric, AudiencePrimaryMetric } from "@/lib/types";
 import {
   audienceGrowthFromSnapshot,
   nextAudienceSnapshot,
@@ -28,7 +28,7 @@ import {
 
 type Account = StoredSettings["audience"]["accounts"][number];
 type SnapshotMap = Record<string, AudienceSnapshot>;
-type CollectedAccount = { total: number; handle: string; secondaryLabel?: string; secondaryValue?: number; source: string };
+type CollectedAccount = { total: number; handle: string; primaryLabel: AudiencePrimaryMetric; secondaryLabel?: string; secondaryValue?: number; source: string };
 type PublicProviderErrorCode = "not_found" | "provider_blocked" | "provider_unavailable";
 declare global {
   var controlCenterAudienceRun: Promise<AudienceMetric[]> | undefined;
@@ -57,7 +57,27 @@ const linkedInHeaders = {
 };
 
 async function readSnapshots(): Promise<SnapshotMap> {
-  try { return JSON.parse(await readFile(snapshotsPath(), "utf8")) as SnapshotMap; } catch { return {}; }
+  try {
+    const parsed = JSON.parse(await readFile(snapshotsPath(), "utf8")) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      throw new Error("Audience snapshots must be an object.");
+    for (const snapshot of Object.values(parsed)) {
+      if (
+        !snapshot ||
+        typeof snapshot !== "object" ||
+        typeof (snapshot as AudienceSnapshot).total !== "number" ||
+        !Number.isFinite((snapshot as AudienceSnapshot).total) ||
+        typeof (snapshot as AudienceSnapshot).checkedAt !== "string"
+      ) throw new Error("Audience snapshot entries are invalid.");
+    }
+    return parsed as SnapshotMap;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw new Error(
+      "Audience snapshot history could not be read safely. Restore snapshots.json from a backup or move the corrupt file aside.",
+      { cause: error },
+    );
+  }
 }
 
 async function writeSnapshots(snapshots: SnapshotMap) {
@@ -184,7 +204,7 @@ async function collectPublicAccount(account: Account): Promise<CollectedAccount>
     const user = data.data?.user;
     if (!user || typeof user.edge_followed_by?.count !== "number") throw new Error("Instagram did not expose a public follower count.");
     requireMatchingHandle("Instagram", user.username, username);
-    return { total: user.edge_followed_by.count, handle: `@${user.username || username}`, secondaryLabel: "posts", secondaryValue: user.edge_owner_to_timeline_media?.count, source: "Instagram public profile" };
+    return { total: user.edge_followed_by.count, handle: `@${user.username || username}`, primaryLabel: "followers", secondaryLabel: "posts", secondaryValue: user.edge_owner_to_timeline_media?.count, source: "Instagram public profile" };
   }
 
   if (account.platform === "x") {
@@ -192,7 +212,7 @@ async function collectPublicAccount(account: Account): Promise<CollectedAccount>
     const data = JSON.parse(response.text) as { user?: { screen_name?: string; followers?: number; tweets?: number } };
     if (!data.user || typeof data.user.followers !== "number") throw new Error("X did not expose a public follower count.");
     requireMatchingHandle("X", data.user.screen_name, username);
-    return { total: data.user.followers, handle: `@${data.user.screen_name || username}`, secondaryLabel: "posts", secondaryValue: data.user.tweets, source: "FxTwitter public proxy" };
+    return { total: data.user.followers, handle: `@${data.user.screen_name || username}`, primaryLabel: "followers", secondaryLabel: "posts", secondaryValue: data.user.tweets, source: "FxTwitter public proxy" };
   }
 
   if (account.platform === "linkedin") {
@@ -201,7 +221,7 @@ async function collectPublicAccount(account: Account): Promise<CollectedAccount>
     const profile = parseLinkedInPublicProfile(response.text.replaceAll("\\u0026", "&"), profileUrl);
     if (!profile || profile.followers === null) throw new Error(`LinkedIn did not expose a public follower count for this ${profile?.kind || "public"} profile.`);
     const source = profile.kind === "personal" ? `LinkedIn public personal profile${profile.rounded ? " (rounded)" : ""}` : `LinkedIn public organization profile${profile.rounded ? " (rounded)" : ""}`;
-    return { total: profile.followers, handle: username, source };
+    return { total: profile.followers, handle: username, primaryLabel: "followers", source };
   }
 
   const requestHeaders = account.platform === "facebook" ? { ...browserHeaders, "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148", "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" } : account.platform === "threads" ? { "User-Agent": "Mozilla/5.0", "Accept-Language": "en-US,en;q=0.9" } : browserHeaders;
@@ -212,13 +232,13 @@ async function collectPublicAccount(account: Account): Promise<CollectedAccount>
   if (account.platform === "youtube") {
     const profile = parseYouTubePublicProfile(html, profileUrl);
     if (!profile || profile.subscribers === null) throw new Error("YouTube did not expose a target-verified public subscriber count.");
-    return { total: profile.subscribers, handle: `@${username}`, secondaryLabel: profile.videos === null ? undefined : "videos", secondaryValue: profile.videos ?? undefined, source: `YouTube public profile${profile.rounded ? " (rounded)" : ""}` };
+    return { total: profile.subscribers, handle: `@${username}`, primaryLabel: "subscribers", secondaryLabel: profile.videos === null ? undefined : "videos", secondaryValue: profile.videos ?? undefined, source: `YouTube public profile${profile.rounded ? " (rounded)" : ""}` };
   }
 
   if (account.platform === "tiktok") {
     const profile = parseTikTokPublicProfile(html, profileUrl);
     if (!profile || profile.followers === null) throw new Error("TikTok did not expose a target-verified public follower count.");
-    return { total: profile.followers, handle: `@${profile.handle}`, secondaryLabel: profile.videos === null ? undefined : "videos", secondaryValue: profile.videos ?? undefined, source: `TikTok public profile${profile.rounded ? " (rounded)" : ""}` };
+    return { total: profile.followers, handle: `@${profile.handle}`, primaryLabel: "followers", secondaryLabel: profile.videos === null ? undefined : "videos", secondaryValue: profile.videos ?? undefined, source: `TikTok public profile${profile.rounded ? " (rounded)" : ""}` };
   }
 
   if (account.platform === "facebook") {
@@ -228,12 +248,12 @@ async function collectPublicAccount(account: Account): Promise<CollectedAccount>
     const total = followers ?? likes;
     if (total === null) throw new Error("Facebook did not expose a public follower or page-like count.");
     const source = followers !== null ? "Facebook public profile" : "Facebook public page likes";
-    return { total, handle: username, secondaryLabel: followers !== null && likes !== null ? "page likes" : undefined, secondaryValue: followers !== null ? likes ?? undefined : undefined, source: `${source}${profile?.rounded ? " (rounded)" : ""}` };
+    return { total, handle: username, primaryLabel: followers !== null ? "followers" : "page likes", secondaryLabel: followers !== null && likes !== null ? "page likes" : undefined, secondaryValue: followers !== null ? likes ?? undefined : undefined, source: `${source}${profile?.rounded ? " (rounded)" : ""}` };
   }
 
   const threadsProfile = parseThreadsPublicProfile(html, profileUrl);
   if (threadsProfile.followers === null) throw new Error("Threads did not expose a public follower count for this profile.");
-  return { total: threadsProfile.followers, handle: `@${username}`, secondaryLabel: threadsProfile.threads === null ? undefined : "threads", secondaryValue: threadsProfile.threads ?? undefined, source: "Threads public profile (rounded)" };
+  return { total: threadsProfile.followers, handle: `@${username}`, primaryLabel: "followers", secondaryLabel: threadsProfile.threads === null ? undefined : "threads", secondaryValue: threadsProfile.threads ?? undefined, source: "Threads public profile (rounded)" };
 }
 
 async function collectWithCredential(account: Account): Promise<CollectedAccount> {
@@ -252,7 +272,7 @@ async function collectWithCredential(account: Account): Promise<CollectedAccount
     if (expectedHandle && channel.snippet?.customUrl) requireMatchingHandle("YouTube", channel.snippet.customUrl, expectedHandle);
     const total = requiredMetricCount("YouTube", "subscriber", channel.statistics?.subscriberCount);
     const videos = metricCount(channel.statistics?.videoCount);
-    return { total, handle: channel.snippet?.customUrl || expectedChannelId, secondaryLabel: videos === null ? undefined : "videos", secondaryValue: videos ?? undefined, source: "YouTube Data API" };
+    return { total, handle: channel.snippet?.customUrl || expectedChannelId, primaryLabel: "subscribers", secondaryLabel: videos === null ? undefined : "videos", secondaryValue: videos ?? undefined, source: "YouTube Data API" };
   }
   if (account.platform === "x") {
     const expected = usernameFor(account);
@@ -262,7 +282,7 @@ async function collectWithCredential(account: Account): Promise<CollectedAccount
     requireMatchingHandle("X", data.data.username, expected);
     const total = requiredMetricCount("X", "follower", data.data.public_metrics?.followers_count);
     const posts = metricCount(data.data.public_metrics?.tweet_count);
-    return { total, handle: `@${data.data.username}`, secondaryLabel: posts === null ? undefined : "posts", secondaryValue: posts ?? undefined, source: "X API" };
+    return { total, handle: `@${data.data.username}`, primaryLabel: "followers", secondaryLabel: posts === null ? undefined : "posts", secondaryValue: posts ?? undefined, source: "X API" };
   }
   if (account.platform === "instagram") {
     if (!account.accountId) throw new Error("Instagram business account ID is required for the API fallback.");
@@ -271,7 +291,7 @@ async function collectWithCredential(account: Account): Promise<CollectedAccount
     if (expected) requireMatchingHandle("Instagram", data.username, expected);
     const total = requiredMetricCount("Instagram", "follower", data.followers_count);
     const posts = metricCount(data.media_count);
-    return { total, handle: `@${data.username || expected}`, secondaryLabel: posts === null ? undefined : "posts", secondaryValue: posts ?? undefined, source: "Meta Graph API" };
+    return { total, handle: `@${data.username || expected}`, primaryLabel: "followers", secondaryLabel: posts === null ? undefined : "posts", secondaryValue: posts ?? undefined, source: "Meta Graph API" };
   }
   if (account.platform === "facebook") {
     if (!account.accountId) throw new Error("Facebook page ID is required for the API fallback.");
@@ -287,7 +307,7 @@ async function collectWithCredential(account: Account): Promise<CollectedAccount
     const likes = metricCount(data.fan_count);
     const total = followers ?? likes;
     if (total === null) throw new Error("Facebook did not return a follower or page-like count; the previous verified value was preserved.");
-    return { total, handle: data.name || account.label, secondaryLabel: followers !== null && likes !== null ? "page likes" : undefined, secondaryValue: followers !== null ? likes ?? undefined : undefined, source: "Meta Graph API" };
+    return { total, handle: data.name || account.label, primaryLabel: followers !== null ? "followers" : "page likes", secondaryLabel: followers !== null && likes !== null ? "page likes" : undefined, secondaryValue: followers !== null ? likes ?? undefined : undefined, source: "Meta Graph API" };
   }
   throw new Error("This platform does not have an API fallback configured.");
 }
@@ -314,6 +334,7 @@ function cachedMetric(account: Account, prior: SnapshotMap[string]): AudienceMet
     handle: prior.handle || usernameFor(account),
     total: prior.total,
     ...growth,
+    primaryLabel: prior.primaryLabel,
     secondaryLabel: prior.secondaryLabel,
     secondaryValue: prior.secondaryValue,
     checkedAt: prior.checkedAt,
@@ -343,11 +364,12 @@ async function collectAudienceNow(settings: StoredSettings, forceRefresh: boolea
         secondaryLabel: current.secondaryLabel,
         secondaryValue: current.secondaryValue,
         source: current.source,
+        primaryLabel: current.primaryLabel,
       }, prior);
       next[account.id] = snapshot;
-      return { id: account.id, platform: account.platform, label: account.label, handle: current.handle, total: current.total, ...audienceGrowthFromSnapshot(snapshot), secondaryLabel: current.secondaryLabel, secondaryValue: current.secondaryValue, checkedAt, source: current.source };
+      return { id: account.id, platform: account.platform, label: account.label, handle: current.handle, total: current.total, ...audienceGrowthFromSnapshot(snapshot), primaryLabel: current.primaryLabel, secondaryLabel: current.secondaryLabel, secondaryValue: current.secondaryValue, checkedAt, source: current.source };
     } catch (error) {
-      return { id: account.id, platform: account.platform, label: account.label, handle: account.username || account.profileUrl || account.accountId, total: prior?.total ?? null, change: null, checkedAt, error: error instanceof Error ? error.message : "Unknown provider error", stale: Boolean(prior), lastSuccessfulAt: prior?.checkedAt };
+      return { id: account.id, platform: account.platform, label: account.label, handle: account.username || account.profileUrl || account.accountId, total: prior?.total ?? null, ...(prior ? audienceGrowthFromSnapshot(prior) : { change: null }), primaryLabel: prior?.primaryLabel, secondaryLabel: prior?.secondaryLabel, secondaryValue: prior?.secondaryValue, checkedAt, error: error instanceof Error ? error.message : "Unknown provider error", stale: Boolean(prior), lastSuccessfulAt: prior?.checkedAt };
     }
   }));
   await writeSnapshots(next);

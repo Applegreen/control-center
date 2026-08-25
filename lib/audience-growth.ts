@@ -1,3 +1,5 @@
+import type { AudiencePrimaryMetric } from "./types";
+
 export type AudienceSnapshot = {
   total: number;
   checkedAt: string;
@@ -6,6 +8,7 @@ export type AudienceSnapshot = {
   secondaryLabel?: string;
   secondaryValue?: number;
   source?: string;
+  primaryLabel?: AudiencePrimaryMetric;
   previousTotal?: number;
   previousCheckedAt?: string;
 };
@@ -24,10 +27,14 @@ export function nextAudienceSnapshot(
   current: Omit<AudienceSnapshot, "previousTotal" | "previousCheckedAt">,
   prior?: AudienceSnapshot,
 ): AudienceSnapshot {
+  const comparablePrior =
+    prior?.primaryLabel && prior.primaryLabel === current.primaryLabel
+      ? prior
+      : undefined;
   return {
     ...current,
-    previousTotal: prior?.total,
-    previousCheckedAt: prior?.checkedAt,
+    previousTotal: comparablePrior?.total,
+    previousCheckedAt: comparablePrior?.checkedAt,
   };
 }
 

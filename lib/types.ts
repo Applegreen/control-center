@@ -130,6 +130,8 @@ export type NewsletterFeedResponse = {
   errors: string[];
 };
 
+export type AudiencePrimaryMetric = "followers" | "subscribers" | "page likes";
+
 export type AudienceMetric = {
   id: string;
   platform: AudiencePlatform;
@@ -138,6 +140,7 @@ export type AudienceMetric = {
   total: number | null;
   change: number | null;
   changeComparedAt?: string;
+  primaryLabel?: AudiencePrimaryMetric;
   secondaryLabel?: string;
   secondaryValue?: number;
   checkedAt: string;

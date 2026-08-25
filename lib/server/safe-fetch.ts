@@ -3,27 +3,28 @@ import "server-only";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { readBoundedResponseText } from "@/lib/sitemap";
+import { isNonPublicIpAddress } from "@/lib/server/public-address";
 
 const DEFAULT_MAX_RESPONSE_BYTES = 5_000_000;
-
-function isPrivateAddress(address: string) {
-  const normalized = address.toLowerCase();
-  if (normalized === "::1" || normalized === "0.0.0.0" || normalized.startsWith("fe80:") || normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
-  if (!isIP(address)) return false;
-  const parts = address.split(".").map(Number);
-  return parts[0] === 10 || parts[0] === 127 || parts[0] === 0 ||
-    (parts[0] === 169 && parts[1] === 254) ||
-    (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
-    (parts[0] === 192 && parts[1] === 168);
-}
 
 export async function assertPublicUrl(value: string) {
   const url = new URL(value);
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error("Only HTTP and HTTPS sources are supported.");
   if (url.username || url.password) throw new Error("Source URLs cannot contain credentials.");
-  if (url.hostname === "localhost" || url.hostname.endsWith(".local")) throw new Error("Local network sources are blocked.");
-  const addresses = await lookup(url.hostname, { all: true });
-  if (addresses.some(({ address }) => isPrivateAddress(address))) throw new Error("Private network sources are blocked.");
+  const hostname = url.hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
+  if (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname === "local" ||
+    hostname.endsWith(".local") ||
+    hostname === "home.arpa" ||
+    hostname.endsWith(".home.arpa")
+  ) throw new Error("Local network sources are blocked.");
+  const addresses = isIP(hostname)
+    ? [{ address: hostname }]
+    : await lookup(hostname, { all: true });
+  if (addresses.length === 0 || addresses.some(({ address }) => isNonPublicIpAddress(address)))
+    throw new Error("Private or non-public network sources are blocked.");
   return url;
 }
 

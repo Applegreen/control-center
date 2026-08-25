@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
@@ -19,12 +19,18 @@ const destination = path.resolve(
     path.join(os.homedir(), "Documents", "Control Center Backups", stamp),
 );
 await mkdir(destination, { recursive: true, mode: 0o700 });
+await chmod(destination, 0o700);
+
+async function makePrivate(filename) {
+  await chmod(path.join(destination, filename), 0o600);
+}
 
 const databasePath = path.join(sourceDirectory, "control-center.sqlite");
 if (existsSync(databasePath)) {
   const database = new DatabaseSync(databasePath, { readOnly: true });
   await backup(database, path.join(destination, "control-center.sqlite"));
   database.close();
+  await makePrivate("control-center.sqlite");
 }
 
 for (const filename of [
@@ -33,13 +39,17 @@ for (const filename of [
   "industry-snapshots.json",
 ]) {
   const source = path.join(sourceDirectory, filename);
-  if (existsSync(source))
+  if (existsSync(source)) {
     await copyFile(source, path.join(destination, filename));
+    await makePrivate(filename);
+  }
 }
 await writeFile(
   path.join(destination, "BACKUP.txt"),
   `Control Center backup\nCreated: ${new Date().toISOString()}\nSource: ${sourceDirectory}\n\nThis private backup may contain OAuth tokens. Keep it secure.\n`,
+  { mode: 0o600 },
 );
+await makePrivate("BACKUP.txt");
 
 console.log(`Backup created: ${destination}`);
 console.log(

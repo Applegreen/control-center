@@ -1928,15 +1928,19 @@ function TasksView({
                   {task.seriesId !== undefined ? " · recurring occurrence" : ""}
                 </small>
               </div>
-              <button
-                onClick={() =>
-                  setTasks((values) =>
-                    values.filter((value) => value.id !== task.id),
-                  )
-                }
-              >
-                <Trash2 size={14} />
-              </button>
+              {task.seriesId === undefined && (
+                <button
+                  aria-label={`Delete completed ${task.title}`}
+                  title="Delete completed task"
+                  onClick={() =>
+                    setTasks((values) =>
+                      values.filter((value) => value.id !== task.id),
+                    )
+                  }
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
             </div>
           ))}
         </details>

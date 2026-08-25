@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { WorkspaceState } from "./types";
+import { preserveRecurringCompletionHistory } from "./tasks";
 
 const emptyWorkspace: WorkspaceState = { reminders: [], tasks: [] };
 
@@ -50,12 +51,17 @@ export function writeWorkspaceState(database: DatabaseSync, state: WorkspaceStat
   `);
   database.exec("BEGIN IMMEDIATE");
   try {
-    statement.run("reminders", JSON.stringify(state.reminders), now);
-    statement.run("tasks", JSON.stringify(state.tasks), now);
+    const existing = readWorkspaceState(database);
+    const persisted = {
+      reminders: state.reminders,
+      tasks: preserveRecurringCompletionHistory(existing.tasks, state.tasks),
+    };
+    statement.run("reminders", JSON.stringify(persisted.reminders), now);
+    statement.run("tasks", JSON.stringify(persisted.tasks), now);
     database.exec("COMMIT");
+    return persisted;
   } catch (error) {
     database.exec("ROLLBACK");
     throw error;
   }
-  return state;
 }

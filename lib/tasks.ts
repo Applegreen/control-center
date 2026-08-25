@@ -2,6 +2,7 @@ import type { TaskItem } from "./types";
 
 const RECURRENCES = new Set(["One-time", "Daily", "Weekly", "Monthly"]);
 const RECURRING_RECURRENCES = new Set(["Daily", "Weekly", "Monthly"]);
+const RAPID_COMPLETION_GUARD_MS = 750;
 
 function localDateValue(date: Date) {
   const year = date.getFullYear();
@@ -77,6 +78,13 @@ export function completeTaskItems(
     (options.expectedDue !== undefined && task.due !== options.expectedDue)
   ) return tasks;
   const now = options.now || new Date();
+  const recentlyCompleted = tasks.some((candidate) => {
+    if (!candidate.done || candidate.seriesId !== task.id || !candidate.completedAt)
+      return false;
+    const elapsed = now.getTime() - Date.parse(candidate.completedAt);
+    return Number.isFinite(elapsed) && elapsed >= 0 && elapsed < RAPID_COMPLETION_GUARD_MS;
+  });
+  if (recentlyCompleted) return tasks;
   const completedAt = now.toISOString();
   if (!RECURRING_RECURRENCES.has(task.recurrence)) {
     return tasks.map((candidate) =>
@@ -111,6 +119,33 @@ export function completeTaskItems(
       : candidate,
   );
   return [occurrence, ...advanced];
+}
+
+function taskIdentity(task: Pick<TaskItem, "id">) {
+  return `${typeof task.id}:${String(task.id)}`;
+}
+
+export function preserveRecurringCompletionHistory(
+  existing: TaskItem[],
+  incoming: TaskItem[],
+) {
+  const immutable = new Map(
+    existing
+      .filter((task) => task.done && task.seriesId !== undefined)
+      .map((task) => [taskIdentity(task), task]),
+  );
+  const retained = new Set<string>();
+  const merged = incoming.map((task) => {
+    const key = taskIdentity(task);
+    const prior = immutable.get(key);
+    if (!prior) return task;
+    retained.add(key);
+    return prior;
+  });
+  for (const [key, task] of immutable) {
+    if (!retained.has(key)) merged.push(task);
+  }
+  return merged;
 }
 
 function cleanId(value: unknown) {

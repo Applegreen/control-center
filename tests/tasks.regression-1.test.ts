@@ -4,6 +4,7 @@ import {
   cleanTaskItems,
   completeTaskItems,
   nextRecurringDue,
+  preserveRecurringCompletionHistory,
 } from "../lib/tasks";
 import type { TaskItem } from "../lib/types";
 
@@ -76,6 +77,25 @@ test("a stale double-click cannot complete and advance the same occurrence twice
   assert.equal(second.find((task) => task.id === recurring.id)?.due, "2026-09-01");
 });
 
+test("a re-rendered double-click cannot complete the newly advanced occurrence", () => {
+  const firstTime = new Date(2026, 7, 25, 12);
+  const first = completeTaskItems([recurring], recurring.id, {
+    now: firstTime,
+    occurrenceId: "occurrence-1",
+    expectedDue: "2026-08-25",
+  });
+  const activeDue = first.find((task) => task.id === recurring.id)?.due;
+  const second = completeTaskItems(first, recurring.id, {
+    now: new Date(firstTime.getTime() + 100),
+    occurrenceId: "occurrence-2",
+    expectedDue: activeDue,
+  });
+
+  assert.deepEqual(second, first);
+  assert.equal(second.filter((task) => task.done).length, 1);
+  assert.equal(activeDue, "2026-09-01");
+});
+
 test("one-time completions keep their original row and completion time", () => {
   const oneTime = { ...recurring, id: "one", recurrence: "One-time" };
   const now = new Date(2026, 7, 25, 15);
@@ -131,4 +151,27 @@ test("workspace cleaning preserves completion history metadata", () => {
 
   assert.equal(cleaned.completedAt, "2026-08-25T19:00:00.000Z");
   assert.equal(cleaned.seriesId, recurring.id);
+});
+
+test("recurring completion history survives omission or mutation", () => {
+  const occurrence = {
+    ...recurring,
+    id: "occurrence-1",
+    done: true,
+    completedAt: "2026-08-25T19:00:00.000Z",
+    seriesId: recurring.id,
+  };
+  assert.deepEqual(
+    preserveRecurringCompletionHistory([occurrence], []),
+    [occurrence],
+  );
+  assert.deepEqual(
+    preserveRecurringCompletionHistory(
+      [occurrence],
+      [{ ...occurrence, title: "Changed", completedAt: "2026-08-26T00:00:00.000Z" }],
+    ),
+    [occurrence],
+  );
+  const oneTime = { ...occurrence, id: "one-time", seriesId: undefined };
+  assert.deepEqual(preserveRecurringCompletionHistory([oneTime], []), []);
 });

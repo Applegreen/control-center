@@ -160,3 +160,23 @@ test("workspace reads fail closed when only one canonical row exists", () => {
     .run("tasks", "[]", "2026-08-25T12:00:00Z");
   assert.throws(() => readWorkspaceState(database), /saved workspace is incomplete/i);
 });
+
+test("workspace writes cannot remove immutable recurring completion history", () => {
+  const database = initializeWorkspaceStore(new DatabaseSync(":memory:"));
+  const occurrence = {
+    id: "occurrence-1",
+    title: "Publish weekly briefing",
+    description: "Ship the update.",
+    due: "2026-08-25",
+    recurrence: "Weekly",
+    priority: "Normal",
+    done: true,
+    completedAt: "2026-08-25T19:00:00.000Z",
+    seriesId: "series-1",
+  };
+  writeWorkspaceState(database, { reminders: [], tasks: [occurrence] });
+  const persisted = writeWorkspaceState(database, { reminders: [], tasks: [] });
+
+  assert.deepEqual(persisted.tasks, [occurrence]);
+  assert.deepEqual(readWorkspaceState(database).tasks, [occurrence]);
+});

@@ -13,6 +13,21 @@ export type AudienceSnapshot = {
   previousCheckedAt?: string;
 };
 
+export function parseAudienceSnapshots(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("Audience snapshots must be an object.");
+  for (const snapshot of Object.values(value)) {
+    if (
+      !snapshot ||
+      typeof snapshot !== "object" ||
+      typeof (snapshot as AudienceSnapshot).total !== "number" ||
+      !Number.isFinite((snapshot as AudienceSnapshot).total) ||
+      typeof (snapshot as AudienceSnapshot).checkedAt !== "string"
+    ) throw new Error("Audience snapshot entries are invalid.");
+  }
+  return value as Record<string, AudienceSnapshot>;
+}
+
 export function audienceGrowthFromSnapshot(snapshot: AudienceSnapshot) {
   const hasComparison =
     typeof snapshot.previousTotal === "number" &&

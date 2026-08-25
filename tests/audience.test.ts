@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { audienceGrowthFromSnapshot, combineAudienceChanges, nextAudienceSnapshot } from "../lib/audience-growth";
+import { audienceGrowthFromSnapshot, combineAudienceChanges, nextAudienceSnapshot, parseAudienceSnapshots } from "../lib/audience-growth";
 import {
   audienceAccountFingerprint,
   audienceCacheWindowMs,
@@ -78,6 +78,20 @@ test("audience growth persists follower deltas independently from content counts
     change: null,
     changeComparedAt: undefined,
   });
+});
+
+test("malformed audience snapshot history fails closed", () => {
+  assert.throws(() => parseAudienceSnapshots([]), /must be an object/i);
+  assert.throws(
+    () => parseAudienceSnapshots({ account: { total: "100", checkedAt: "today" } }),
+    /entries are invalid/i,
+  );
+  assert.deepEqual(
+    parseAudienceSnapshots({
+      account: { total: 100, checkedAt: "2026-08-25T12:00:00Z" },
+    }),
+    { account: { total: 100, checkedAt: "2026-08-25T12:00:00Z" } },
+  );
 });
 
 test("social profile validation accepts account URLs and rejects content URLs", () => {

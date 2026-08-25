@@ -6,6 +6,7 @@ import type { AudienceMetric, AudiencePrimaryMetric } from "@/lib/types";
 import {
   audienceGrowthFromSnapshot,
   nextAudienceSnapshot,
+  parseAudienceSnapshots,
   type AudienceSnapshot,
 } from "@/lib/audience-growth";
 import type { StoredSettings } from "@/lib/server/settings";
@@ -58,19 +59,9 @@ const linkedInHeaders = {
 
 async function readSnapshots(): Promise<SnapshotMap> {
   try {
-    const parsed = JSON.parse(await readFile(snapshotsPath(), "utf8")) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-      throw new Error("Audience snapshots must be an object.");
-    for (const snapshot of Object.values(parsed)) {
-      if (
-        !snapshot ||
-        typeof snapshot !== "object" ||
-        typeof (snapshot as AudienceSnapshot).total !== "number" ||
-        !Number.isFinite((snapshot as AudienceSnapshot).total) ||
-        typeof (snapshot as AudienceSnapshot).checkedAt !== "string"
-      ) throw new Error("Audience snapshot entries are invalid.");
-    }
-    return parsed as SnapshotMap;
+    return parseAudienceSnapshots(
+      JSON.parse(await readFile(snapshotsPath(), "utf8")) as unknown,
+    );
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
     throw new Error(

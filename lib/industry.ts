@@ -1,5 +1,15 @@
 import type { LiveStory } from "@/lib/types";
 
+export function splitIndustryLibrary(items: LiveStory[]) {
+  const archivedItems: LiveStory[] = [];
+  const historyItems: LiveStory[] = [];
+  for (const item of items) {
+    if (item.workflow?.archiveReason === "user") archivedItems.push(item);
+    else historyItems.push(item);
+  }
+  return { archivedItems, historyItems };
+}
+
 export function combineIndustryDiscoveries(siteItems: LiveStory[], topicItems: LiveStory[]) {
   const combined = [...new Map(
     [...siteItems, ...topicItems].map((item) => [item.url || item.id, item]),

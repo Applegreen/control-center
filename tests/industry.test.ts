@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
-import { combineIndustryDiscoveries, prioritizeIndustryItems } from "../lib/industry";
+import { combineIndustryDiscoveries, prioritizeIndustryItems, splitIndustryLibrary } from "../lib/industry";
 import {
   filterSitemapEntriesForSource,
   isUrlWithinSourcePath,
@@ -78,6 +78,25 @@ test("topic discovery cannot crowd watched-site updates out of the response limi
   assert.equal(selected.length, 100);
   assert.deepEqual(selected.slice(0, 90).map((item) => item.id), watched.map((item) => item.id));
   assert.equal(selected.filter((item) => item.kind === "topic").length, 10);
+});
+
+test("manual archives are separate from expired and out-of-scope history", () => {
+  const base = {
+    id: "story",
+    title: "Story",
+    summary: "",
+    url: "https://example.com/story",
+    source: "Example",
+    publishedAt: "2026-08-24T12:00:00Z",
+  };
+  const { archivedItems, historyItems } = splitIndustryLibrary([
+    { ...base, id: "manual", workflow: { archiveReason: "user", archivedAt: "2026-08-24T13:00:00Z", restoreEligible: true } },
+    { ...base, id: "expired", workflow: { archiveReason: "expired", restoreEligible: false } },
+    { ...base, id: "removed-source", workflow: { archiveReason: "not-current", restoreEligible: false } },
+  ]);
+
+  assert.deepEqual(archivedItems.map((item) => item.id), ["manual"]);
+  assert.deepEqual(historyItems.map((item) => item.id), ["expired", "removed-source"]);
 });
 
 test("RSS 1.0 RDF items and dc:date are parsed as feed stories", () => {

@@ -780,10 +780,14 @@ function IndustryView({
   const { data, loading, error, refresh } =
     useLiveData<LiveFeedResponse>("/api/live/industry");
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<"active" | "archive">("active");
+  const [view, setView] = useState<"active" | "history" | "archive">("active");
   const archive = useArchiveAction("industry", refresh);
   const sourceItems =
-    view === "archive" ? data?.archivedItems || [] : data?.items || [];
+    view === "archive"
+      ? data?.archivedItems || []
+      : view === "history"
+        ? data?.historyItems || []
+        : data?.items || [];
   const items = sourceItems.filter((item) =>
     `${item.title} ${item.summary} ${item.source}`
       .toLowerCase()
@@ -833,10 +837,16 @@ function IndustryView({
                 Last 24 hours {data.items.length}
               </button>
               <button
+                className={view === "history" ? "active" : ""}
+                onClick={() => setView("history")}
+              >
+                History {data.historyCount || 0}
+              </button>
+              <button
                 className={view === "archive" ? "active" : ""}
                 onClick={() => setView("archive")}
               >
-                Archive & history {data.archiveCount || 0}
+                Archived {data.archiveCount || 0}
               </button>
             </div>
             <label className="search-box">
@@ -896,8 +906,11 @@ function IndustryView({
                     >
                       {kindLabel(item)}
                     </Label>
-                    {view === "archive" && !item.workflow?.restoreEligible && (
+                    {view === "history" && (
                       <Label tone="watch">History</Label>
+                    )}
+                    {view === "archive" && (
+                      <Label tone="watch">Archived</Label>
                     )}
                   </div>
                   <h2>{item.title}</h2>
@@ -952,13 +965,17 @@ function IndustryView({
                 <CheckCircle2 size={24} />
                 <h2>
                   {view === "archive"
-                    ? "Nothing in history yet"
-                    : "No current updates found"}
+                    ? "Nothing archived yet"
+                    : view === "history"
+                      ? "Nothing in history yet"
+                      : "No current updates found"}
                 </h2>
                 <p>
                   {view === "archive"
-                    ? "Archived and expired updates remain available here."
-                    : "No matching item was found by the configured sites and topic-news source during this collection window."}
+                    ? "Items only appear here after you choose Archive."
+                    : view === "history"
+                      ? "Updates that left the current 24-hour window remain available here."
+                      : "No matching item was found by the configured sites and topic-news source during this collection window."}
                 </p>
               </Panel>
             )}

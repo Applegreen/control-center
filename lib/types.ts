@@ -116,6 +116,8 @@ export type LiveFeedResponse = {
   freshnessHours?: number;
   archivedItems?: LiveStory[];
   archiveCount?: number;
+  historyItems?: LiveStory[];
+  historyCount?: number;
 };
 
 export type NewsletterFeedResponse = {

@@ -46,7 +46,7 @@ Each configured URL is treated independently and can belong to any niche.
 2. If no feed is readable, it merges sitemap locations from `robots.txt` and common sitemap paths, including recursive sitemap indexes.
 3. A first sitemap scan records a quiet baseline. Later scans report newly discovered pages.
 
-A blocked homepage does not stop feed or sitemap discovery. Active Industry cards are limited to items published or newly discovered in the last 24 hours; older saved items remain under **Archive & history**. Undated feed entries establish a baseline instead of being presented as fresh news.
+A blocked homepage does not stop feed or sitemap discovery. Active Industry cards are limited to items published or newly discovered in the last 24 hours; older saved items remain under **History**. **Archived** contains only items a user explicitly archived. Undated feed entries establish a baseline instead of being presented as fresh news.
 
 Topic phrases add broader Google News discovery, while watched-site updates remain prioritized independently.
 

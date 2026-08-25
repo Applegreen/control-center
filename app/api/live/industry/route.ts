@@ -4,7 +4,7 @@ import { parseFeed, readIndustrySnapshots, readSource, writeIndustrySnapshots } 
 import { INDUSTRY_FRESHNESS_HOURS } from "@/lib/freshness";
 import { syncContentItems } from "@/lib/server/database";
 import { safeFetchText } from "@/lib/server/safe-fetch";
-import { combineIndustryDiscoveries, prioritizeIndustryItems } from "@/lib/industry";
+import { combineIndustryDiscoveries, prioritizeIndustryItems, splitIndustryLibrary } from "@/lib/industry";
 import { collectionScope } from "@/lib/collection-scope";
 
 export const runtime = "nodejs";
@@ -61,7 +61,8 @@ async function collectIndustry() {
   if (!settings.industry.sources.length && !settings.industry.keywords.length) {
     const saved = syncContentItems<LiveStory>("industry", [], { freshSince, freshUntil, activeScopes });
     const hasSavedLibrary = saved.active.length + saved.archived.length > 0;
-    return Response.json({ configured: hasSavedLibrary, checkedAt, items: saved.active, archivedItems: saved.archived, archiveCount: saved.archived.length, errors: hasSavedLibrary ? ["Tracking is paused because no Industry sources are configured. Saved history remains available."] : [], sourceStatuses: [], freshnessHours: INDUSTRY_FRESHNESS_HOURS } satisfies LiveFeedResponse);
+    const { archivedItems, historyItems } = splitIndustryLibrary(saved.archived);
+    return Response.json({ configured: hasSavedLibrary, checkedAt, items: saved.active, archivedItems, archiveCount: archivedItems.length, historyItems, historyCount: historyItems.length, errors: hasSavedLibrary ? ["Tracking is paused because no Industry sources are configured. Saved history remains available."] : [], sourceStatuses: [], freshnessHours: INDUSTRY_FRESHNESS_HOURS } satisfies LiveFeedResponse);
   }
   const snapshots = await readIndustrySnapshots();
   const nextSnapshots = { ...snapshots };
@@ -95,7 +96,8 @@ async function collectIndustry() {
     : [];
   const currentItems = combineIndustryDiscoveries(siteItems, topicItems);
   const saved = syncContentItems<LiveStory>("industry", currentItems, { freshSince, freshUntil, activeScopes });
-  return Response.json({ configured: true, checkedAt, items: prioritizeIndustryItems(saved.active, 100), archivedItems: saved.archived, archiveCount: saved.archived.length, errors, sourceStatuses, freshnessHours: INDUSTRY_FRESHNESS_HOURS } satisfies LiveFeedResponse);
+  const { archivedItems, historyItems } = splitIndustryLibrary(saved.archived);
+  return Response.json({ configured: true, checkedAt, items: prioritizeIndustryItems(saved.active, 100), archivedItems, archiveCount: archivedItems.length, historyItems, historyCount: historyItems.length, errors, sourceStatuses, freshnessHours: INDUSTRY_FRESHNESS_HOURS } satisfies LiveFeedResponse);
 }
 
 export async function GET() {

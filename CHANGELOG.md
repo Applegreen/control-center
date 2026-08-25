@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 - 2026-08-25
+
+- Split automatically expired Industry history from items a user manually archived, added deterministic newest/oldest/watched-site sorting, and stopped stale feed backlogs from appearing as new discoveries.
+- Tightened seven-day mention matching so provider query terms never count as observed evidence and ambiguous names require configured identity corroboration in strict mode.
+- Persisted follower and subscriber changes between successful audience checks while keeping post, video, and thread counts as separate content metadata.
+- Added immutable dated completion records for repeating tasks while advancing the active series to its next due date.
+- Expanded production smoke coverage for personalized-data-free first runs and verified the one-command launcher from a clean clone with an unrelated industry niche.
+
 ## 0.2.0 - 2026-08-25
 
 - Added a one-command local launcher with health wait, browser opening, rebuild detection, and single-instance protection.

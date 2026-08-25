@@ -1,4 +1,5 @@
 import type { LiveStory } from "@/lib/types";
+import { filterFreshStories, INDUSTRY_FRESHNESS_HOURS } from "@/lib/freshness";
 
 export type IndustrySortOrder = "newest" | "oldest" | "watched";
 
@@ -38,6 +39,18 @@ export function combineIndustryDiscoveries(siteItems: LiveStory[], topicItems: L
   ).values()];
   combined.sort((left, right) => Date.parse(right.publishedAt) - Date.parse(left.publishedAt));
   return combined;
+}
+
+export function freshIndustryDiscoveries(
+  siteItems: LiveStory[],
+  topicItems: LiveStory[],
+  now = Date.now(),
+) {
+  return filterFreshStories(
+    combineIndustryDiscoveries(siteItems, topicItems),
+    INDUSTRY_FRESHNESS_HOURS,
+    now,
+  );
 }
 
 export function prioritizeIndustryItems(items: LiveStory[], limit = 100) {

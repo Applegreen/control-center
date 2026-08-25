@@ -4,7 +4,7 @@ import { parseFeed, readIndustrySnapshots, readSource, writeIndustrySnapshots } 
 import { INDUSTRY_FRESHNESS_HOURS } from "@/lib/freshness";
 import { syncContentItems } from "@/lib/server/database";
 import { safeFetchText } from "@/lib/server/safe-fetch";
-import { combineIndustryDiscoveries, prioritizeIndustryItems, splitIndustryLibrary } from "@/lib/industry";
+import { freshIndustryDiscoveries, prioritizeIndustryItems, splitIndustryLibrary } from "@/lib/industry";
 import { collectionScope } from "@/lib/collection-scope";
 
 export const runtime = "nodejs";
@@ -95,7 +95,7 @@ async function collectIndustry() {
   const topicItems = topicScope
     ? topicResult.items.map((item) => ({ ...item, collectionScope: topicScope }))
     : [];
-  const currentItems = combineIndustryDiscoveries(siteItems, topicItems);
+  const currentItems = freshIndustryDiscoveries(siteItems, topicItems, Date.parse(checkedAt));
   const saved = syncContentItems<LiveStory>("industry", currentItems, { freshSince, freshUntil, activeScopes });
   const { archivedItems, historyItems } = splitIndustryLibrary(saved.archived);
   return Response.json({ configured: true, checkedAt, items: prioritizeIndustryItems(saved.active, INDUSTRY_RESPONSE_LIMIT), archivedItems, archiveCount: archivedItems.length, historyItems, historyCount: historyItems.length, errors, sourceStatuses, freshnessHours: INDUSTRY_FRESHNESS_HOURS } satisfies LiveFeedResponse);

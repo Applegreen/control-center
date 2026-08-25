@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
-import { combineIndustryDiscoveries, prioritizeIndustryItems, sortIndustryItems, splitIndustryLibrary } from "../lib/industry";
+import { combineIndustryDiscoveries, freshIndustryDiscoveries, prioritizeIndustryItems, sortIndustryItems, splitIndustryLibrary } from "../lib/industry";
 import {
   filterSitemapEntriesForSource,
   isUrlWithinSourcePath,
@@ -110,6 +110,24 @@ test("industry updates support chronological and watched-source ordering", () =>
   assert.deepEqual(sortIndustryItems(items, "oldest").map((item) => item.id), ["watched-old", "watched-new", "topic-new"]);
   assert.deepEqual(sortIndustryItems(items, "watched").map((item) => item.id), ["watched-new", "watched-old", "topic-new"]);
   assert.deepEqual(items.map((item) => item.id), ["topic-new", "watched-old", "watched-new"]);
+});
+
+test("a newly configured feed does not import its stale backlog into local history", () => {
+  const now = Date.parse("2026-08-24T16:00:00Z");
+  const base = {
+    id: "story",
+    title: "Story",
+    summary: "",
+    url: "https://example.com/story",
+    source: "Example",
+    kind: "feed" as const,
+  };
+  const discoveries = freshIndustryDiscoveries([
+    { ...base, id: "fresh", url: "https://example.com/fresh", publishedAt: "2026-08-24T15:00:00Z" },
+    { ...base, id: "stale", url: "https://example.com/stale", publishedAt: "2026-05-01T12:00:00Z" },
+  ], [], now);
+
+  assert.deepEqual(discoveries.map((item) => item.id), ["fresh"]);
 });
 
 test("RSS 1.0 RDF items and dc:date are parsed as feed stories", () => {

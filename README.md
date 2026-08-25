@@ -152,7 +152,7 @@ npm run smoke
 
 The standalone dashboard does not automatically inherit private Codex connectors. Instead, **Settings → Integrations** provides a portable local bridge for Gmail, Slack, Granola, Google Calendar, Apple Messages, Computer History, or any other user-approved source.
 
-Add the source labels, save, and choose **Copy bridge prompt**. The generated prompt tells Codex to use the installed connectors read-only, minimize private content, and send stable action/meeting/message items to the loopback-only Daily Brief endpoint. The Today page then provides Today/Week views and can turn any item into a task. Scripts can use `npm run ingest` with the same JSON contract.
+Add the source labels, save, and choose **Copy bridge prompt**. The generated prompt tells Codex to use the installed connectors read-only, minimize private content, report per-source success or failure, and send stable action/meeting/message items to the loopback-only Daily Brief endpoint. Successful empty checks are recorded, completed items are reconciled away, and failed sources keep their last successful set while showing the failure. The Today page provides Today/Week views and can turn any item into a task. Scripts can use `npm run ingest` with the same JSON contract.
 
 The bridge makes connector-backed overviews portable without shipping anyone's account access. A connector automation still needs to be created by each user because those permissions belong to that user's Codex/provider accounts. See [docs/CONNECTOR_BRIDGE.md](docs/CONNECTOR_BRIDGE.md).
 

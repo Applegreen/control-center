@@ -1,8 +1,10 @@
-import { createHash } from "node:crypto";
 import {
   briefSourceStatuses,
   listBriefItems,
-  upsertBriefItems,
+  normalizeBriefSource,
+  purgeDisabledBriefSources,
+  syncBriefSources,
+  type BriefSourceRun,
 } from "@/lib/brief-store";
 import { getDatabase } from "@/lib/server/database";
 import { readSettings } from "@/lib/server/settings";
@@ -50,19 +52,27 @@ async function responsePayload(): Promise<DailyBriefResponse> {
     Date.now() - settings.dailyBrief.lookbackDays * 86_400_000,
   ).toISOString();
   const database = getDatabase();
-  const items = listBriefItems(database, since);
+  purgeDisabledBriefSources(database, settings.dailyBrief.sourceLabels);
+  const items = listBriefItems(
+    database,
+    since,
+    250,
+    settings.dailyBrief.sourceLabels,
+  );
   const storedStatuses = new Map(
-    briefSourceStatuses(database, since).map((status) => [
-      status.source.toLowerCase(),
-      status,
-    ]),
+    briefSourceStatuses(database, settings.dailyBrief.sourceLabels).map(
+      (status) => [normalizeBriefSource(status.source), status],
+    ),
   );
   const sourceStatuses = settings.dailyBrief.sourceLabels.map((source) => {
-    const status = storedStatuses.get(source.toLowerCase());
+    const status = storedStatuses.get(normalizeBriefSource(source));
     return {
       source,
-      lastSyncedAt: status?.last_synced_at || "",
+      lastSyncedAt: status?.last_success_at || "",
+      lastAttemptAt: status?.last_attempt_at || "",
       itemCount: status?.item_count || 0,
+      state: status?.state || ("waiting" as const),
+      message: status?.message || "",
     };
   });
   return {
@@ -71,6 +81,18 @@ async function responsePayload(): Promise<DailyBriefResponse> {
     items,
     sourceStatuses,
   };
+}
+
+type SourceReport = {
+  source?: unknown;
+  status?: unknown;
+  error?: unknown;
+};
+
+function requestedSourceReport(value: unknown): SourceReport {
+  if (typeof value === "string") return { source: value, status: "success" };
+  if (value && typeof value === "object") return value as SourceReport;
+  return {};
 }
 
 export async function GET() {
@@ -91,57 +113,126 @@ export async function POST(request: Request) {
     }
     const configuredSources = new Map(
       settings.dailyBrief.sourceLabels.map((source) => [
-        source.toLowerCase(),
+        normalizeBriefSource(source),
         source,
       ]),
     );
-    const body = (await request.json()) as { items?: unknown[] } | unknown[];
+    const body = (await request.json()) as
+      | { items?: unknown[]; sources?: unknown[] }
+      | unknown[];
     const values = Array.isArray(body) ? body : body.items;
+    const requestedReports = Array.isArray(body) ? [] : body.sources;
     if (!Array.isArray(values))
       throw new Error("Send a JSON array or an object with an items array.");
     if (values.length > 500)
       throw new Error(
         "A single Daily Brief sync can contain at most 500 items.",
       );
+    if (requestedReports && !Array.isArray(requestedReports))
+      throw new Error("sources must be an array when provided.");
+    if ((requestedReports?.length || 0) > 100)
+      throw new Error("A single Daily Brief sync can report at most 100 sources.");
+
     const syncedAt = new Date().toISOString();
-    const items = values.map((value, index): DailyBriefItem => {
+    const reports = new Map<
+      string,
+      Omit<BriefSourceRun, "items" | "attemptedAt">
+    >();
+    for (const [index, rawReport] of (requestedReports || []).entries()) {
+      const report = requestedSourceReport(rawReport);
+      const requestedSource = cleanText(report.source, 80);
+      const sourceKey = normalizeBriefSource(requestedSource);
+      const source = configuredSources.get(sourceKey);
+      if (!source)
+        throw new Error(
+          `Source report ${index + 1}: source "${requestedSource || "(missing)"}" is not enabled in Daily Brief Settings.`,
+        );
+      if (reports.has(sourceKey))
+        throw new Error(`Source report ${index + 1}: ${source} is duplicated.`);
+      const status = cleanText(report.status, 20).toLowerCase();
+      if (status !== "success" && status !== "error")
+        throw new Error(
+          `Source report ${index + 1}: status must be "success" or "error".`,
+        );
+      reports.set(sourceKey, {
+        source,
+        state: status === "success" ? "live" : "error",
+        message: cleanText(report.error, 500),
+      });
+    }
+
+    const itemsBySource = new Map<string, DailyBriefItem[]>();
+    const itemKeys = new Set<string>();
+    for (const [index, value] of values.entries()) {
       if (!value || typeof value !== "object")
         throw new Error(`Item ${index + 1} must be an object.`);
       const candidate = value as Record<string, unknown>;
       const requestedSource = cleanText(candidate.source, 80);
-      const source = configuredSources.get(requestedSource.toLowerCase());
+      const sourceKey = normalizeBriefSource(requestedSource);
+      const source = configuredSources.get(sourceKey);
       if (!source)
         throw new Error(
           `Item ${index + 1}: source "${requestedSource || "(missing)"}" is not enabled in Daily Brief Settings.`,
         );
+      if (requestedReports?.length && !reports.has(sourceKey))
+        throw new Error(
+          `Item ${index + 1}: ${source} must also appear in the sources array.`,
+        );
+      const report = reports.get(sourceKey);
+      if (report?.state === "error")
+        throw new Error(
+          `Item ${index + 1}: ${source} is marked as an error and cannot include items.`,
+        );
+      if (!report)
+        reports.set(sourceKey, { source, state: "live", message: "" });
       const title = cleanText(candidate.title, 300);
       if (!title) throw new Error(`Item ${index + 1}: title is required.`);
+      const requestedId = cleanText(candidate.id, 200);
+      if (!requestedId)
+        throw new Error(
+          `Item ${index + 1}: id is required and must stay stable across syncs.`,
+        );
+      const itemKey = `${sourceKey}\u0000${requestedId}`;
+      if (itemKeys.has(itemKey))
+        throw new Error(
+          `Item ${index + 1}: id "${requestedId}" is duplicated for ${source}.`,
+        );
+      itemKeys.add(itemKey);
       const occurredAt = cleanDate(candidate.occurredAt, syncedAt)!;
       const kind = cleanText(candidate.kind, 20) as DailyBriefItem["kind"];
       const normalizedKind = kinds.has(kind) ? kind : "info";
-      const url = cleanUrl(candidate.url);
-      const requestedId = cleanText(candidate.id, 200);
-      const id =
-        requestedId ||
-        createHash("sha256")
-          .update([source, title, url || "", occurredAt].join("\u0000"))
-          .digest("hex");
-      return {
-        id,
+      const item: DailyBriefItem = {
+        id: requestedId,
         source,
         title,
         summary: cleanText(candidate.summary, 2_000),
         kind: normalizedKind,
         occurredAt,
         dueAt: cleanDate(candidate.dueAt),
-        url,
+        url: cleanUrl(candidate.url),
         syncedAt,
       };
-    });
-    upsertBriefItems(getDatabase(), items);
+      const sourceItems = itemsBySource.get(sourceKey) || [];
+      sourceItems.push(item);
+      itemsBySource.set(sourceKey, sourceItems);
+    }
+
+    if (!reports.size)
+      throw new Error(
+        "An empty sync must include a sources array so Control Center knows which connectors completed.",
+      );
+    const runs: BriefSourceRun[] = [...reports.entries()].map(
+      ([sourceKey, report]) => ({
+        ...report,
+        attemptedAt: syncedAt,
+        items: itemsBySource.get(sourceKey) || [],
+      }),
+    );
+    syncBriefSources(getDatabase(), runs);
     return Response.json({
       ...(await responsePayload()),
-      accepted: items.length,
+      accepted: values.length,
+      sourcesProcessed: runs.length,
     });
   } catch (error) {
     return Response.json(

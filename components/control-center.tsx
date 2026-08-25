@@ -61,6 +61,7 @@ import type {
   WorkspaceState,
   WorkspaceStateResponse,
 } from "@/lib/types";
+import { isDailyBriefItemInWindow } from "@/lib/brief-window";
 
 type Tab =
   | "today"
@@ -399,18 +400,17 @@ function DailyBriefPanel({
   );
   const [window, setWindow] = useState<"today" | "week">("today");
   const now = Date.parse(data?.checkedAt || "1970-01-01T00:00:00.000Z");
-  const dayBoundary = now + 24 * 60 * 60 * 1000;
+  const enabledSources = new Set(
+    settings.dailyBrief.sourceLabels.map((source) =>
+      source.toLocaleLowerCase("en-US"),
+    ),
+  );
   const items = (data?.items || []).filter((item) => {
-    if (window === "week") return true;
-    const due = item.dueAt ? Date.parse(item.dueAt) : Number.NaN;
-    const occurred = Date.parse(item.occurredAt);
-    return (
-      (Number.isFinite(due) && due <= dayBoundary) ||
-      (Number.isFinite(occurred) && occurred >= now - 24 * 60 * 60 * 1000)
-    );
+    if (!enabledSources.has(item.source.toLocaleLowerCase("en-US"))) return false;
+    return isDailyBriefItemInWindow(item, window, now);
   });
   const connected = (data?.sourceStatuses || []).filter(
-    (status) => status.lastSyncedAt,
+    (status) => status.state === "live",
   ).length;
 
   return (
@@ -534,11 +534,21 @@ function DailyBriefPanel({
       {!!data?.sourceStatuses.length && (
         <div className="brief-source-strip">
           {data.sourceStatuses.map((status) => (
-            <span key={status.source}>
-              <i className={status.lastSyncedAt ? "ready" : ""} />
+            <span key={status.source} title={status.message || undefined}>
+              <i
+                className={
+                  status.state === "live"
+                    ? "ready"
+                    : status.state === "error"
+                      ? "error"
+                      : ""
+                }
+              />
               {status.source}
               <small>
-                {status.lastSyncedAt
+                {status.state === "error"
+                  ? `failed · ${formatDate(status.lastAttemptAt)}`
+                  : status.lastSyncedAt
                   ? `${status.itemCount} · ${formatDate(status.lastSyncedAt)}`
                   : "waiting"}
               </small>
@@ -1931,6 +1941,7 @@ function SettingsView({
   });
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
+  const [bridgePromptFallback, setBridgePromptFallback] = useState("");
   useEffect(() => {
     window.queueMicrotask(() => {
       const parameters = new URLSearchParams(window.location.search);
@@ -2061,17 +2072,19 @@ function SettingsView({
       `Use only these installed connector sources: ${draft.dailyBrief.sourceLabels.join(", ")}.`,
       `Look back ${draft.dailyBrief.lookbackDays} days and return only actionable messages, meetings, deadlines, decisions, and genuinely useful context.`,
       "Minimize private content: concise titles and summaries only; never include credentials or full message bodies.",
-      `POST the result to ${endpoint} as JSON: {\"items\":[{\"id\":\"stable-source-id\",\"source\":\"one configured source label\",\"title\":\"...\",\"summary\":\"...\",\"kind\":\"action|meeting|message|info\",\"occurredAt\":\"ISO date\",\"dueAt\":\"optional ISO date\",\"url\":\"optional source URL\"}]}.`,
-      "Keep this operation read-only in every connected app. Report sync failures instead of inventing an empty success.",
+      `POST the result to ${endpoint} as JSON: {\"sources\":[{\"source\":\"each configured source label\",\"status\":\"success|error\",\"error\":\"required only on error\"}],\"items\":[{\"id\":\"required stable provider ID\",\"source\":\"one successful source label\",\"title\":\"...\",\"summary\":\"...\",\"kind\":\"action|meeting|message|info\",\"occurredAt\":\"ISO date\",\"dueAt\":\"optional ISO date\",\"url\":\"optional source URL\"}]}.`,
+      "Include every configured source in sources, even when a successful source has zero items. The items for each successful source must be its complete current set; missing prior items will be removed. Mark unreadable connectors as error and omit their items so the dashboard preserves the last successful set while showing the failure. Keep this operation read-only in every connected app.",
     ].join("\n");
     try {
       await navigator.clipboard.writeText(prompt);
+      setBridgePromptFallback("");
       setNotice(
         "Saved to clipboard. Paste the bridge prompt into Codex to create the connector sync.",
       );
     } catch {
+      setBridgePromptFallback(prompt);
       setNotice(
-        `Copy this endpoint into your local connector automation: ${endpoint}`,
+        "Clipboard access was blocked. Select the complete prompt shown below and copy it manually.",
       );
     }
   };
@@ -2816,10 +2829,10 @@ function SettingsView({
               />
               <div className="settings-field">
                 <label>
-                  Brief lookback
+                  Brief data horizon
                   <small>
-                    How long successfully synced items remain in the Today and
-                    Week overview.
+                    The maximum recent sync history available locally. Today
+                    and Week apply their own narrower display windows.
                   </small>
                 </label>
                 <select
@@ -2847,8 +2860,8 @@ function SettingsView({
                   <h3>Copy one portable automation prompt</h3>
                   <p>
                     The prompt tells Codex to use only the source labels above,
-                    minimize private content, stay read-only, and post stable
-                    items to this computer.
+                    minimize private content, stay read-only, report each
+                    source&apos;s health, and post stable items to this computer.
                   </p>
                 </div>
                 <button
@@ -2863,6 +2876,16 @@ function SettingsView({
                     ? "/api/brief"
                     : `${window.location.origin}/api/brief`}
                 </code>
+                {bridgePromptFallback && (
+                  <label className="bridge-prompt-fallback">
+                    Complete prompt
+                    <textarea
+                      readOnly
+                      value={bridgePromptFallback}
+                      onFocus={(event) => event.currentTarget.select()}
+                    />
+                  </label>
+                )}
               </div>
               <div className="bridge-manual">
                 <b>Script or local automation</b>
@@ -2871,7 +2894,8 @@ function SettingsView({
                   <code>
                     npm run ingest -- --file=/absolute/path/items.json
                   </code>
-                  . Stable item IDs prevent duplicates on later runs.
+                  . Stable item IDs prevent duplicates on later runs; source
+                  reports record empty checks and connector failures.
                 </p>
               </div>
               <div className="settings-caveat">

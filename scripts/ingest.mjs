@@ -46,5 +46,8 @@ if (!response.ok) {
 }
 console.log(`Daily Brief sync accepted ${result.accepted || 0} item(s).`);
 console.log(
+  `${result.sourcesProcessed || 0} source report(s) were recorded.`,
+);
+console.log(
   `${result.items?.length || 0} item(s) are available in the configured lookback window.`,
 );

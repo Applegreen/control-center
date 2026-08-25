@@ -206,6 +206,9 @@ export type DailyBriefResponse = {
   sourceStatuses: Array<{
     source: string;
     lastSyncedAt: string;
+    lastAttemptAt: string;
     itemCount: number;
+    state: "waiting" | "live" | "error";
+    message: string;
   }>;
 };

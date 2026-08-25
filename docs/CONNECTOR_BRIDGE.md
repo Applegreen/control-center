@@ -17,6 +17,14 @@ POST to the local endpoint shown in Settings, normally `http://127.0.0.1:3000/ap
 
 ```json
 {
+  "sources": [
+    { "source": "Slack", "status": "success" },
+    {
+      "source": "Gmail",
+      "status": "error",
+      "error": "Connector authorization expired."
+    }
+  ],
   "items": [
     {
       "id": "slack:workspace:thread-123",
@@ -34,7 +42,8 @@ POST to the local endpoint shown in Settings, normally `http://127.0.0.1:3000/ap
 
 Fields:
 
-- `id`: a stable provider identity. Reusing it updates the item instead of duplicating it.
+- `sources`: every connector attempted in this sweep. Use `success` even when that source has zero items. Use `error` with a short error message when it could not be read.
+- `id`: required stable provider identity. IDs only need to be unique within their source; reusing one updates the item instead of duplicating it.
 - `source`: must exactly match one enabled source label, ignoring case.
 - `title`: required, concise, and safe to display.
 - `summary`: optional minimized context; do not send full private message bodies.
@@ -43,7 +52,9 @@ Fields:
 - `dueAt`: optional ISO timestamp.
 - `url`: optional public/provider link using HTTP or HTTPS.
 
-At most 500 items are accepted per sync. Stored items expire 45 days after their last successful sync.
+Each successful source is authoritative: items missing from its next successful sweep are removed. A failed source preserves its last successful items and shows a failed health state. At most 500 items and 100 source reports are accepted per sync.
+
+Stored items expire 45 days after their last successful sync. Expiration is enforced whenever the database opens or the Daily Brief is read, even if automations have stopped. Removing a source from Settings also removes its stored items on the next Daily Brief read.
 
 ## Local ingest command
 

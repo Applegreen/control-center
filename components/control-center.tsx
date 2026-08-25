@@ -1416,8 +1416,8 @@ function AudienceView({ openSettings }: { openSettings: () => void }) {
               <strong>{formatNumber(total)}</strong>
               <span>
                 <TrendingUp size={15} /> summed across {successful.length}
-                readable account{successful.length === 1 ? "" : "s"}; not
-                deduplicated people
+                {" "}readable account{successful.length === 1 ? "" : "s"};
+                {" "}not deduplicated people
               </span>
             </div>
             <div className="audience-live-copy">

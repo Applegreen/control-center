@@ -325,6 +325,7 @@ function byteLimitLabel(maxBytes: number) {
 export async function readBoundedResponseText(response: Response, maxBytes: number) {
   const declaredLength = Number(response.headers.get("content-length") || 0);
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    await response.body?.cancel().catch(() => undefined);
     throw new Error(`Source response is larger than ${byteLimitLabel(maxBytes)}.`);
   }
   if (!response.body) return "";

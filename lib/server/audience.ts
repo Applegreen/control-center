@@ -11,7 +11,8 @@ import {
 } from "@/lib/audience-growth";
 import type { StoredSettings } from "@/lib/server/settings";
 import { snapshotsPath } from "@/lib/server/settings";
-import { assertPublicUrl, safeFetchText } from "@/lib/server/safe-fetch";
+import { safeFetchText } from "@/lib/server/safe-fetch";
+import { fetchPinned } from "@/lib/server/pinned-fetch";
 import {
   audienceAccountFingerprint,
   audienceCacheWindowMs,
@@ -26,6 +27,7 @@ import {
   samePublicProfileIdentity,
   sameHostRedirectSession,
 } from "@/lib/public-metrics";
+import { readBoundedResponseText } from "@/lib/sitemap";
 
 type Account = StoredSettings["audience"]["accounts"][number];
 type SnapshotMap = Record<string, AudienceSnapshot>;
@@ -145,14 +147,12 @@ function responseCookies(headers: Headers) {
   return combined ? [combined] : [];
 }
 
-async function fetchLinkedInPublicProfile(value: string, fetchImplementation: typeof fetch = fetch) {
-  let currentUrl = (await assertPublicUrl(value)).toString();
+async function fetchLinkedInPublicProfile(value: string, fetchImplementation: typeof fetchPinned = fetchPinned) {
+  let currentUrl = new URL(value).toString();
   let cookies = "";
   let referer = "";
   for (let redirects = 0; redirects <= 5; redirects += 1) {
     const response = await fetchImplementation(currentUrl, {
-      redirect: "manual",
-      cache: "no-store",
       signal: AbortSignal.timeout(12_000),
       headers: {
         ...linkedInHeaders,
@@ -162,24 +162,32 @@ async function fetchLinkedInPublicProfile(value: string, fetchImplementation: ty
     });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
-      if (!location || redirects === 5) throw new PublicProviderError("provider_unavailable", "LinkedIn redirected this public profile too many times.");
+      if (!location || redirects === 5) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new PublicProviderError("provider_unavailable", "LinkedIn redirected this public profile too many times.");
+      }
       const session = sameHostRedirectSession(currentUrl, location, cookies, responseCookies(response.headers));
       if (!session) {
+        await response.body?.cancel().catch(() => undefined);
         throw new PublicProviderError("provider_unavailable", "LinkedIn redirected this profile away from linkedin.com.");
       }
-      const nextUrl = await assertPublicUrl(session.nextUrl);
+      await response.body?.cancel().catch(() => undefined);
       referer = currentUrl;
-      currentUrl = nextUrl.toString();
+      currentUrl = session.nextUrl;
       cookies = session.cookieHeader;
       continue;
     }
     if (!response.ok) {
       const failure = linkedInHttpError(response.status);
+      await response.body?.cancel().catch(() => undefined);
       throw new PublicProviderError(failure.code, failure.message);
     }
     const contentLength = Number(response.headers.get("content-length") || 0);
-    if (contentLength > 5_000_000) throw new PublicProviderError("provider_unavailable", "LinkedIn returned a public profile larger than 5 MB.");
-    return { text: (await response.text()).slice(0, 5_000_000), finalUrl: currentUrl };
+    if (contentLength > 5_000_000) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new PublicProviderError("provider_unavailable", "LinkedIn returned a public profile larger than 5 MB.");
+    }
+    return { text: await readBoundedResponseText(response, 5_000_000), finalUrl: currentUrl };
   }
   throw new PublicProviderError("provider_unavailable", "LinkedIn could not complete this public profile check right now.");
 }

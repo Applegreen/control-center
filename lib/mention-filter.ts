@@ -93,6 +93,19 @@ function containsExplicitHandle(text: string, signal: string) {
     .test(text.normalize("NFKC"));
 }
 
+function containsObservedHandle(text: string, signal: string) {
+  const raw = signal.trim();
+  const candidate = raw.replace(/^@/, "").normalize("NFKC").toLocaleLowerCase();
+  if (
+    !candidate ||
+    candidate.includes(" ") ||
+    looksLikeDomain(raw) ||
+    (!raw.startsWith("@") && raw !== raw.toLocaleLowerCase())
+  ) return false;
+  return new RegExp(`(^|[^\\p{L}\\p{N}_])@${escapedPattern(candidate)}(?=$|[^\\p{L}\\p{N}_])`, "iu")
+    .test(text.normalize("NFKC"));
+}
+
 function containsIdentitySignal(text: string, signal: string) {
   return signal.trim().startsWith("@")
     ? containsExplicitHandle(text, signal)
@@ -354,7 +367,8 @@ export function evaluateMention(
   const primaryInPage = containsIdentitySignal(pageText, primary);
   const primaryInPublisher = containsIdentitySignal(publisherText, primary);
   const primaryDirect = primaryInFeed || primaryInPage || primaryInPublisher;
-  const literalHandleEvidence = containsExplicitHandle(directText, primary);
+  const literalHandleEvidence = containsExplicitHandle(directText, primary) ||
+    containsObservedHandle(directText, primary);
   const matchedNegative = (evidence.negativeTerms ?? []).find((term) => containsMentionSignal(directText, term));
   if (matchedNegative) {
     return { accepted: false, confidence: "medium", review: false, score: 0, reasons: [`Excluded context: ${matchedNegative}`] };

@@ -116,6 +116,16 @@ test("does not infer unique identity from name length or erase configured handle
   assert.equal(literalHandle.accepted, true);
   assert.equal(literalHandle.confidence, "high");
 
+  const normalizedBareHandle = evaluateMention(
+    story({ title: "Interview with @mreflow" }),
+    "mreflow",
+    ["mreflow"],
+    [],
+    true,
+  );
+  assert.equal(normalizedBareHandle.accepted, true);
+  assert.equal(normalizedBareHandle.confidence, "high");
+
   assert.equal(evaluateMention(
     story({ title: "Interview with @michael.creator" }),
     "@michael.creator",

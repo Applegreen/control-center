@@ -72,6 +72,23 @@ function migrateLegacyBriefTable(database: DatabaseSync) {
 
   database.exec("BEGIN IMMEDIATE");
   try {
+    const legacyRows = database
+      .prepare(
+        `SELECT item_id, source, title, summary, kind,
+          occurred_at, due_at, url, synced_at
+         FROM daily_brief_items`,
+      )
+      .all() as unknown as Array<{
+      item_id: string;
+      source: string;
+      title: string;
+      summary: string;
+      kind: string;
+      occurred_at: string;
+      due_at: string | null;
+      url: string | null;
+      synced_at: string;
+    }>;
     database.exec(`
       ALTER TABLE daily_brief_items RENAME TO daily_brief_items_legacy;
       CREATE TABLE daily_brief_items (
@@ -87,13 +104,28 @@ function migrateLegacyBriefTable(database: DatabaseSync) {
         synced_at TEXT NOT NULL,
         PRIMARY KEY (source_key, item_id)
       );
+    `);
+    const insertLegacyItem = database.prepare(`
       INSERT INTO daily_brief_items (
         source_key, item_id, source, title, summary, kind,
         occurred_at, due_at, url, synced_at
-      )
-      SELECT lower(trim(source)), item_id, source, title, summary, kind,
-        occurred_at, due_at, url, synced_at
-      FROM daily_brief_items_legacy;
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const row of legacyRows) {
+      insertLegacyItem.run(
+        normalizeBriefSource(row.source),
+        row.item_id,
+        row.source,
+        row.title,
+        row.summary,
+        row.kind,
+        row.occurred_at,
+        row.due_at,
+        row.url,
+        row.synced_at,
+      );
+    }
+    database.exec(`
       DROP TABLE daily_brief_items_legacy;
       CREATE INDEX daily_brief_synced_at ON daily_brief_items(synced_at DESC);
       CREATE INDEX daily_brief_source ON daily_brief_items(source_key, synced_at DESC);

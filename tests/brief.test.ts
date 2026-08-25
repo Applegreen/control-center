@@ -220,11 +220,64 @@ test("legacy Daily Brief tables migrate to source-scoped identities", () => {
   database.close();
 });
 
+test("legacy Daily Brief migration uses Unicode-aware source keys", () => {
+  const database = new DatabaseSync(":memory:");
+  database.exec(`
+    CREATE TABLE daily_brief_items (
+      item_id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      due_at TEXT,
+      url TEXT,
+      synced_at TEXT NOT NULL
+    );
+  `);
+  const now = new Date().toISOString();
+  database
+    .prepare(
+      `INSERT INTO daily_brief_items (
+        item_id, source, title, summary, kind, occurred_at, synced_at
+      ) VALUES (?, ?, ?, '', 'message', ?, ?)`,
+    )
+    .run("unicode", "İletiler", "Unicode source", now, now);
+
+  initializeBriefStore(database);
+
+  assert.deepEqual(
+    listBriefItems(database, new Date(0).toISOString(), 250, ["İletiler"]).map(
+      (entry) => entry.id,
+    ),
+    [`${"İletiler".toLocaleLowerCase("en-US")}:unicode`],
+  );
+  purgeDisabledBriefSources(database, ["İletiler"]);
+  assert.equal(briefSourceStatuses(database, ["İletiler"])[0]?.item_count, 1);
+  database.close();
+});
+
 test("Daily Brief Week view uses a bounded seven-day window", () => {
   const now = Date.parse("2026-08-25T12:00:00.000Z");
   assert.equal(
     isDailyBriefItemInWindow(
       { occurredAt: "2026-08-17T11:59:59.000Z" },
+      "week",
+      now,
+    ),
+    false,
+  );
+  assert.equal(
+    isDailyBriefItemInWindow(
+      { occurredAt: "2026-09-01T12:00:00.000Z" },
+      "week",
+      now,
+    ),
+    true,
+  );
+  assert.equal(
+    isDailyBriefItemInWindow(
+      { occurredAt: "2026-09-01T12:00:00.001Z" },
       "week",
       now,
     ),
@@ -248,6 +301,56 @@ test("Daily Brief Week view uses a bounded seven-day window", () => {
         dueAt: "2026-09-02T12:00:00.000Z",
       },
       "week",
+      now,
+    ),
+    false,
+  );
+});
+
+test("Daily Brief Today view bounds events at 24 hours and retains overdue actions", () => {
+  const now = Date.parse("2026-08-25T12:00:00.000Z");
+  assert.equal(
+    isDailyBriefItemInWindow(
+      { occurredAt: "2026-08-26T12:00:00.000Z" },
+      "today",
+      now,
+    ),
+    true,
+  );
+  assert.equal(
+    isDailyBriefItemInWindow(
+      { occurredAt: "2026-08-26T12:00:00.001Z" },
+      "today",
+      now,
+    ),
+    false,
+  );
+  assert.equal(
+    isDailyBriefItemInWindow(
+      { occurredAt: "2026-08-24T11:59:59.999Z" },
+      "today",
+      now,
+    ),
+    false,
+  );
+  assert.equal(
+    isDailyBriefItemInWindow(
+      {
+        occurredAt: "2026-08-01T12:00:00.000Z",
+        dueAt: "2026-08-20T12:00:00.000Z",
+      },
+      "today",
+      now,
+    ),
+    true,
+  );
+  assert.equal(
+    isDailyBriefItemInWindow(
+      {
+        occurredAt: "2026-08-01T12:00:00.000Z",
+        dueAt: "2026-08-26T12:00:00.001Z",
+      },
+      "today",
       now,
     ),
     false,

@@ -17,11 +17,13 @@ export function isDailyBriefItemInWindow(
       (Number.isFinite(due) && due >= weekStart && due <= weekEnd) ||
       (Number.isFinite(occurred) &&
         occurred >= weekStart &&
-        occurred <= dayBoundary)
+        occurred <= weekEnd)
     );
   }
   return (
     (Number.isFinite(due) && due <= dayBoundary) ||
-    (Number.isFinite(occurred) && occurred >= now - dayMilliseconds)
+    (Number.isFinite(occurred) &&
+      occurred >= now - dayMilliseconds &&
+      occurred <= dayBoundary)
   );
 }

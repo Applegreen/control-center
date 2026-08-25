@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 - 2026-08-25
+
+- Split Industry into a broad raw-discovery store and a bounded importance queue, with canonical/title/event deduplication, configurable exclusions, source diversity, scoring reasons, and a default 30-update daily target.
+- Added optional provider-selectable OpenAI, Anthropic, or Gemini background intelligence with private server-side keys, environment-key support, model overrides, two-hour caching, and deterministic fallback behavior.
+- Expanded Mentions beyond news feeds with optional broad-web research, while requiring independently fetched canonical-page evidence, preserving strict namesake filtering, supporting negative contexts, and excluding owned sites by default.
+- Changed Audience growth from the previous hourly refresh to a true 24–36 hour comparison, retaining one anchor per 12-hour bucket and safely migrating legacy snapshot files.
+- Added schema-v4 migration backups and a separate SQLite table for raw Industry discoveries so surfaced history and user archive state remain durable.
+- Updated first-run, backup, security, diagnostics, UI, and portable-install documentation for the new generic curation model.
+
 ## 0.2.1 - 2026-08-25
 
 - Split automatically expired Industry history from items a user manually archived, added deterministic newest/oldest/watched-site sorting across the complete active set, and stopped stale or undated feed backlogs from appearing as new discoveries.

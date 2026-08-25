@@ -46,12 +46,12 @@ for (const filename of [
 }
 await writeFile(
   path.join(destination, "BACKUP.txt"),
-  `Control Center backup\nCreated: ${new Date().toISOString()}\nSource: ${sourceDirectory}\n\nThis private backup may contain OAuth tokens. Keep it secure.\n`,
+  `Control Center backup\nCreated: ${new Date().toISOString()}\nSource: ${sourceDirectory}\n\nThis private backup may contain OAuth tokens and AI provider keys. Keep it secure.\n`,
   { mode: 0o600 },
 );
 await makePrivate("BACKUP.txt");
 
 console.log(`Backup created: ${destination}`);
 console.log(
-  "This is a private full backup and may contain OAuth tokens. Keep it secure.",
+  "This is a private full backup and may contain OAuth tokens or AI provider keys. Keep it secure.",
 );

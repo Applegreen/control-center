@@ -2,9 +2,25 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
-import { combineIndustryDiscoveries, freshIndustryDiscoveries, sortIndustryItems, splitIndustryLibrary } from "../lib/industry";
+import { combineIndustryDiscoveries, freshIndustryDiscoveries, sortIndustryItems, splitIndustryLibrary, topicDiscoveryStatus } from "../lib/industry";
+import { industryAiCacheKey } from "../lib/industry-ai-cache";
+import {
+  canonicalizeIndustryUrl,
+  curateIndustryDiscoveries,
+  normalizeIndustryTitle,
+  selectDiverseIndustryDiscoveries,
+  stableIndustryDiscoveryId,
+  type IndustryDiscoveryLike,
+} from "../lib/industry-curation";
+import {
+  initializeIndustryStore,
+  listIndustryDiscoveries,
+  pruneIndustryDiscoveries,
+  upsertIndustryDiscoveries,
+} from "../lib/industry-store";
 import { discoveredFeedLinks, isFeedDocument } from "../lib/feed-discovery";
 import {
   filterSitemapEntriesForSource,
@@ -125,6 +141,11 @@ test("industry updates support chronological and watched-source ordering", () =>
   assert.deepEqual(sortIndustryItems(items, "newest").map((item) => item.id), ["topic-new", "watched-new", "watched-old"]);
   assert.deepEqual(sortIndustryItems(items, "oldest").map((item) => item.id), ["watched-old", "watched-new", "topic-new"]);
   assert.deepEqual(sortIndustryItems(items, "watched").map((item) => item.id), ["watched-new", "watched-old", "topic-new"]);
+  assert.deepEqual(sortIndustryItems([
+    { ...items[0], importanceScore: 90 },
+    { ...items[1], importanceScore: 55 },
+    { ...items[2], importanceScore: 70 },
+  ], "important").map((item) => item.id), ["topic-new", "watched-new", "watched-old"]);
   assert.deepEqual(items.map((item) => item.id), ["topic-new", "watched-old", "watched-new"]);
 });
 
@@ -361,4 +382,364 @@ test("parallel atomic writes never collide or leave a partial snapshot", async (
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("industry discovery identity is stable across tracking URLs and provider wrappers", () => {
+  const base: IndustryDiscoveryLike = {
+    title: "Acme launches reusable shipping crate - Trade Journal",
+    summary: "",
+    source: "Trade Journal",
+    url: "https://www.example.com/news/acme-crate/?utm_source=digest&id=7#details",
+    publishedAt: "2026-08-25T10:00:00Z",
+    kind: "feed",
+  };
+  const trackedVariant = {
+    ...base,
+    url: "https://example.com/news/acme-crate?id=7&utm_campaign=weekly",
+  };
+  assert.equal(canonicalizeIndustryUrl(base.url), "https://example.com/news/acme-crate?id=7");
+  assert.equal(normalizeIndustryTitle(base.title, base.source), "acme launches reusable shipping crate");
+  assert.equal(stableIndustryDiscoveryId(base), stableIndustryDiscoveryId(trackedVariant));
+
+  const wrapper = {
+    ...base,
+    kind: "topic",
+    url: "https://news.google.com/rss/articles/provider-token-a?oc=5",
+  };
+  assert.equal(
+    stableIndustryDiscoveryId(wrapper),
+    stableIndustryDiscoveryId({ ...wrapper, url: "https://news.google.com/rss/articles/provider-token-b?hl=en-US" }),
+  );
+});
+
+test("industry curation deduplicates canonical and title matches while preferring watched sources", () => {
+  const now = Date.parse("2026-08-25T16:00:00Z");
+  const direct: IndustryDiscoveryLike = {
+    id: "direct",
+    title: "Acme launches reusable shipping crate",
+    summary: "Acme announced a reusable crate for regional delivery networks.",
+    source: "Acme",
+    url: "https://acme.example/news/reusable-crate?utm_source=feed",
+    publishedAt: "2026-08-25T12:00:00Z",
+    kind: "feed",
+  };
+  const canonicalDuplicate = {
+    ...direct,
+    id: "canonical-duplicate",
+    url: "https://www.acme.example/news/reusable-crate/",
+    kind: "topic",
+  };
+  const titleDuplicate = {
+    ...direct,
+    id: "title-duplicate",
+    source: "Trade Journal",
+    url: "https://news.example/acme-crate",
+    kind: "topic",
+  };
+  const result = curateIndustryDiscoveries(
+    [canonicalDuplicate, titleDuplicate, direct],
+    { now, topicTerms: ["reusable shipping"], limit: 10 },
+  );
+
+  assert.equal(result.candidateCount, 3);
+  assert.equal(result.deduplicatedCount, 2);
+  assert.equal(result.selected.length, 1);
+  assert.equal(result.selected[0].item.id, "direct");
+  assert.equal(result.selected[0].watched, true);
+  assert.deepEqual(result.selected[0].corroboratingSources.sort(), ["Acme", "Trade Journal"]);
+});
+
+test("industry curation keeps unrelated watched pages with the same sparse title", () => {
+  const result = curateIndustryDiscoveries([
+    {
+      id: "alpha-results",
+      title: "Quarterly results",
+      summary: "Alpha published its current operating results.",
+      source: "Alpha",
+      url: "https://alpha.example/investors/quarterly-results",
+      publishedAt: "2026-08-25T12:00:00Z",
+      kind: "feed",
+    },
+    {
+      id: "beta-results",
+      title: "Quarterly results",
+      summary: "Beta published a different current operating report.",
+      source: "Beta",
+      url: "https://beta.example/news/quarterly-results",
+      publishedAt: "2026-08-25T13:00:00Z",
+      kind: "feed",
+    },
+  ], { now: Date.parse("2026-08-25T16:00:00Z"), limit: 10 });
+
+  assert.equal(result.deduplicatedCount, 0);
+  assert.deepEqual(result.selected.map((candidate) => candidate.item.id).sort(), [
+    "alpha-results",
+    "beta-results",
+  ]);
+});
+
+test("industry curation applies generic exclusions and keeps similar events from dominating", () => {
+  const now = Date.parse("2026-08-25T16:00:00Z");
+  const item = (id: string, title: string, source: string): IndustryDiscoveryLike => ({
+    id,
+    title,
+    summary: "A detailed current report about recyclable packaging supply chains.",
+    source,
+    url: `https://${source.toLowerCase().replace(/\s/g, "-")}.example/${id}`,
+    publishedAt: "2026-08-25T14:00:00Z",
+    kind: "topic",
+  });
+  const result = curateIndustryDiscoveries([
+    item("first", "Acme launches Nova recyclable packaging platform", "Journal One"),
+    item("second", "Nova recyclable packaging platform launches from Acme", "Journal Two"),
+    item("betting", "Sports betting platform expands packaging sponsorship", "Journal Three"),
+    { ...item("privacy", "Privacy policy", "Journal Four"), url: "https://journal-four.example/privacy-policy" },
+  ], {
+    now,
+    topicTerms: ["recyclable packaging"],
+    excludeTerms: ["sports betting"],
+    limit: 10,
+  });
+
+  assert.equal(result.selected.length, 1);
+  assert.equal(result.deferred.filter((candidate) => candidate.deferredReason === "similar-event").length, 1);
+  assert.deepEqual(result.excluded.map((candidate) => candidate.item.id).sort(), ["betting", "privacy"]);
+});
+
+test("industry curation bounds the daily set and preserves watched and source diversity", () => {
+  const now = Date.parse("2026-08-25T16:00:00Z");
+  const topicItems = Array.from({ length: 45 }, (_, index): IndustryDiscoveryLike => ({
+    id: `topic-${index}`,
+    title: `Manufacturer ${String(index).padStart(3, "0")} announces circular material ${String(index).padStart(3, "0")}`,
+    summary: "A current material announcement for reusable shipping systems.",
+    source: index < 35 ? "Large Wire" : "Specialist Review",
+    url: `https://news.example/${index}`,
+    publishedAt: new Date(now - index * 60_000).toISOString(),
+    kind: "topic",
+  }));
+  const watched = Array.from({ length: 5 }, (_, index): IndustryDiscoveryLike => ({
+    id: `watched-${index}`,
+    title: `Supplier ${String(index).padStart(3, "0")} releases fiber product ${String(index).padStart(3, "0")}`,
+    summary: "A new page on a watched supplier site.",
+    source: "Watched Supplier",
+    url: `https://supplier.example/releases/${index}`,
+    publishedAt: new Date(now - index * 60_000).toISOString(),
+    kind: "feed",
+  }));
+  const result = curateIndustryDiscoveries([...topicItems, ...watched], {
+    now,
+    topicTerms: ["circular material", "reusable shipping"],
+    limit: 10,
+    maxPerSource: 2,
+  });
+
+  assert.equal(result.selected.length, 10);
+  assert.ok(result.selected.some((candidate) => candidate.watched));
+  assert.ok(new Set(result.selected.map((candidate) => candidate.item.source)).size >= 3);
+  assert.ok(result.deferred.some((candidate) => candidate.deferredReason === "source-diversity" || candidate.deferredReason === "daily-limit"));
+
+  const defaultBound = curateIndustryDiscoveries(
+    Array.from({ length: 50 }, (_, index): IndustryDiscoveryLike => ({
+      id: `independent-${index}`,
+      title: `Organization ${String(index).padStart(3, "0")} announces standard ${String(index).padStart(3, "0")}`,
+      summary: "",
+      source: `Source ${index}`,
+      url: `https://source-${index}.example/story`,
+      publishedAt: new Date(now - index * 60_000).toISOString(),
+      kind: "topic",
+    })),
+    { now },
+  );
+  assert.equal(defaultBound.selected.length, 30);
+});
+
+test("semantic ranking is constrained by deterministic source diversity", () => {
+  const now = Date.parse("2026-08-25T16:00:00Z");
+  const wireTitles = [
+    "Copper tariff reshapes Chile contracts",
+    "Battery recall closes Ohio plant",
+    "Shipping law changes Baltic insurance",
+    "Patent ruling alters medical licensing",
+    "Drought report cuts regional harvest",
+    "Security breach delays airline merger",
+  ];
+  const specialistTitles = [
+    "University maps coral recovery",
+    "Regulator approves timber standard",
+    "Cooperative opens dairy exchange",
+    "Laboratory studies ceramic coating",
+  ];
+  const raw = [
+    ...wireTitles.map((title, index): IndustryDiscoveryLike => ({
+      id: `wire-${index}`,
+      title,
+      summary: "A timely report about the configured market.",
+      source: "Dominant Wire",
+      url: `https://wire.example/${index}`,
+      publishedAt: new Date(now - index * 60_000).toISOString(),
+      kind: "feed",
+    })),
+    ...specialistTitles.map((title, index): IndustryDiscoveryLike => ({
+      id: `specialist-${index}`,
+      title,
+      summary: "A timely independent report about the configured market.",
+      source: `Specialist ${index}`,
+      url: `https://specialist-${index}.example/report`,
+      publishedAt: new Date(now - (index + 10) * 60_000).toISOString(),
+      kind: "feed",
+    })),
+  ];
+  const ranked = raw.flatMap((item) => curateIndustryDiscoveries([item], { now }).selected);
+  const selected = selectDiverseIndustryDiscoveries(ranked, {
+    limit: 6,
+    maxPerSource: 2,
+  }).selected;
+
+  assert.equal(selected.length, 6);
+  assert.equal(selected.filter((candidate) => candidate.item.source === "Dominant Wire").length, 2);
+  assert.equal(new Set(selected.map((candidate) => candidate.item.source)).size, 5);
+});
+
+test("industry AI cache identity changes with discoveries, content, and exclusions", () => {
+  const now = Date.parse("2026-08-25T16:00:00Z");
+  const candidate = curateIndustryDiscoveries([{
+    id: "release",
+    title: "Acme releases a recyclable container",
+    summary: "Initial release details.",
+    source: "Acme",
+    url: "https://acme.example/releases/container",
+    publishedAt: "2026-08-25T14:00:00Z",
+    kind: "feed",
+  }], { now }).selected[0];
+  const settings = { provider: "openai", model: "gpt-test" };
+  const options = {
+    niche: "Reusable packaging",
+    keywords: ["recyclable container"],
+    excludedTerms: [] as string[],
+    limit: 30,
+    now,
+  };
+  const initial = industryAiCacheKey(settings, [candidate], options);
+
+  assert.equal(initial, industryAiCacheKey(settings, [candidate], options));
+  assert.notEqual(initial, industryAiCacheKey(settings, [candidate], {
+    ...options,
+    excludedTerms: ["consumer coupons"],
+  }));
+  assert.notEqual(initial, industryAiCacheKey(settings, [{
+    ...candidate,
+    item: { ...candidate.item, summary: "Corrected and expanded release details." },
+  }], options));
+  assert.notEqual(initial, industryAiCacheKey(settings, [{
+    ...candidate,
+    discoveryId: "another-discovery",
+  }], options));
+});
+
+test("topic discovery only reports live after a successful provider query", () => {
+  assert.equal(topicDiscoveryStatus({
+    endpoint: "https://news.google.com/",
+    itemCount: 0,
+    keywordCount: 2,
+    successfulQueries: 0,
+  }), null);
+  assert.equal(topicDiscoveryStatus({
+    endpoint: "https://news.google.com/rss/search?q=test",
+    itemCount: 3,
+    keywordCount: 2,
+    successfulQueries: 1,
+  })?.state, "live");
+});
+
+test("industry discovery store keeps raw candidates separate and preserves first seen time", () => {
+  const database = initializeIndustryStore(new DatabaseSync(":memory:"));
+  const firstSeen = "2026-08-25T10:00:00Z";
+  const secondSeen = "2026-08-25T11:00:00Z";
+  const kept: IndustryDiscoveryLike = {
+    id: "kept",
+    title: "Acme launches a recyclable container",
+    summary: "Initial summary",
+    source: "Acme",
+    url: "https://acme.example/releases/container?utm_source=rss",
+    publishedAt: "2026-08-25T09:00:00Z",
+    kind: "feed",
+    collectionScope: "source-acme",
+  };
+  const excluded: IndustryDiscoveryLike = {
+    id: "excluded",
+    title: "Privacy policy",
+    summary: "",
+    source: "Acme",
+    url: "https://acme.example/privacy-policy",
+    publishedAt: "2026-08-25T09:30:00Z",
+    kind: "sitemap",
+    collectionScope: "source-acme",
+  };
+
+  const initial = upsertIndustryDiscoveries(database, [kept, excluded], firstSeen);
+  assert.deepEqual({ inserted: initial.inserted, updated: initial.updated }, { inserted: 2, updated: 0 });
+  assert.equal(listIndustryDiscoveries(database).length, 2);
+
+  const refreshed = upsertIndustryDiscoveries(database, [{
+    ...kept,
+    title: "Acme launches its recyclable container",
+    summary: "Corrected upstream summary",
+    url: "https://www.acme.example/releases/container/",
+  }], secondSeen);
+  assert.deepEqual({ inserted: refreshed.inserted, updated: refreshed.updated }, { inserted: 0, updated: 1 });
+  const scoped = listIndustryDiscoveries<IndustryDiscoveryLike>(database, {
+    collectionScopes: ["source-acme"],
+    since: "2026-08-25T08:00:00Z",
+  });
+  assert.equal(scoped.length, 2);
+  const updated = scoped.find((record) => record.item.id === "kept");
+  assert.equal(updated?.firstSeenAt, "2026-08-25T10:00:00.000Z");
+  assert.equal(updated?.lastSeenAt, "2026-08-25T11:00:00.000Z");
+  assert.equal(updated?.canonicalUrl, "https://acme.example/releases/container");
+  assert.equal(updated?.item.summary, "Corrected upstream summary");
+  database.close();
+});
+
+test("industry discovery store normalizes RFC feed dates before SQL freshness filtering", () => {
+  const database = initializeIndustryStore(new DatabaseSync(":memory:"));
+  upsertIndustryDiscoveries(database, [{
+    id: "rfc-feed-date",
+    title: "A current standards release",
+    source: "Standards Body",
+    url: "https://standards.example/current-release",
+    publishedAt: "Tue, 25 Aug 2026 21:40:21 GMT",
+    kind: "feed",
+    collectionScope: "standards",
+  }], "2026-08-25T21:50:00Z");
+  assert.equal(listIndustryDiscoveries(database, {
+    since: "2026-08-24T21:50:00Z",
+    until: "2026-08-25T22:00:00Z",
+    collectionScopes: ["standards"],
+  }).length, 1);
+  database.close();
+});
+
+test("industry discovery store prunes expired raw discoveries without touching current rows", () => {
+  const database = initializeIndustryStore(new DatabaseSync(":memory:"));
+  const item = (id: string): IndustryDiscoveryLike => ({
+    id,
+    title: `Industry update ${id}`,
+    source: "Trade Journal",
+    url: `https://trade.example/${id}`,
+    publishedAt: "2026-08-25T12:00:00Z",
+    kind: "feed",
+    collectionScope: "trade",
+  });
+  upsertIndustryDiscoveries(database, [item("expired")], "2026-04-01T12:00:00Z");
+  upsertIndustryDiscoveries(database, [item("current")], "2026-08-25T12:00:00Z");
+
+  assert.equal(pruneIndustryDiscoveries(database, {
+    now: "2026-08-25T12:00:00Z",
+    retentionDays: 90,
+  }), 1);
+  assert.deepEqual(
+    listIndustryDiscoveries(database).map((record) => record.item.id),
+    ["current"],
+  );
+  database.close();
 });

@@ -11,6 +11,70 @@ const databasePath = path.join(dataDirectory, "control-center.sqlite");
 const audienceSnapshotsPath = path.join(dataDirectory, "snapshots.json");
 let healthy = true;
 
+function assertAudienceSample(sample) {
+  if (
+    !sample ||
+    typeof sample !== "object" ||
+    Array.isArray(sample) ||
+    typeof sample.total !== "number" ||
+    !Number.isFinite(sample.total) ||
+    sample.total < 0 ||
+    typeof sample.checkedAt !== "string" ||
+    !Number.isFinite(Date.parse(sample.checkedAt)) ||
+    (sample.primaryLabel !== undefined &&
+      !["followers", "subscribers", "page likes"].includes(sample.primaryLabel)) ||
+    (sample.secondaryValue !== undefined &&
+      (typeof sample.secondaryValue !== "number" ||
+        !Number.isFinite(sample.secondaryValue) ||
+        sample.secondaryValue < 0)) ||
+    (sample.handle !== undefined && typeof sample.handle !== "string") ||
+    (sample.secondaryLabel !== undefined &&
+      typeof sample.secondaryLabel !== "string") ||
+    (sample.source !== undefined && typeof sample.source !== "string")
+  ) throw new Error("snapshot history contains an invalid entry");
+}
+
+function assertAudienceHistory(snapshots) {
+  if (!snapshots || typeof snapshots !== "object" || Array.isArray(snapshots))
+    throw new Error("snapshot history must be an object");
+  if ("version" in snapshots) {
+    if (
+      snapshots.version !== 2 ||
+      !snapshots.accounts ||
+      typeof snapshots.accounts !== "object" ||
+      Array.isArray(snapshots.accounts)
+    ) throw new Error("snapshot history has an unsupported version");
+    for (const history of Object.values(snapshots.accounts)) {
+      if (
+        !history ||
+        typeof history !== "object" ||
+        Array.isArray(history) ||
+        typeof history.fingerprint !== "string" ||
+        !Array.isArray(history.samples) ||
+        history.samples.length === 0
+      ) throw new Error("snapshot history contains an invalid account");
+      assertAudienceSample(history.latest);
+      history.samples.forEach(assertAudienceSample);
+    }
+    return { count: Object.keys(snapshots.accounts).length, version: "v2" };
+  }
+  for (const snapshot of Object.values(snapshots)) {
+    assertAudienceSample(snapshot);
+    const hasPreviousTotal = snapshot.previousTotal !== undefined;
+    const hasPreviousDate = snapshot.previousCheckedAt !== undefined;
+    if (
+      hasPreviousTotal !== hasPreviousDate ||
+      (hasPreviousTotal &&
+        (typeof snapshot.previousTotal !== "number" ||
+          !Number.isFinite(snapshot.previousTotal) ||
+          snapshot.previousTotal < 0 ||
+          typeof snapshot.previousCheckedAt !== "string" ||
+          !Number.isFinite(Date.parse(snapshot.previousCheckedAt))))
+    ) throw new Error("snapshot history contains an invalid legacy comparison");
+  }
+  return { count: Object.keys(snapshots).length, version: "legacy" };
+}
+
 console.log(`Node.js: ${process.versions.node}`);
 console.log(`Platform: ${process.platform} ${process.arch}`);
 console.log(`Local data: ${dataDirectory}`);
@@ -23,6 +87,22 @@ if (existsSync(settingsPath)) {
     const settings = JSON.parse(await readFile(settingsPath, "utf8"));
     console.log(
       `Settings: readable (${settings.industry?.sources?.length || 0} industry sources, ${settings.audience?.accounts?.length || 0} audience accounts)`,
+    );
+    const aiProvider = ["openai", "anthropic", "gemini"].includes(settings.ai?.provider)
+      ? settings.ai.provider
+      : "none";
+    const environmentKey = aiProvider === "openai"
+      ? process.env.OPENAI_API_KEY
+      : aiProvider === "anthropic"
+        ? process.env.ANTHROPIC_API_KEY
+        : aiProvider === "gemini"
+          ? process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
+          : "";
+    const storedKey = aiProvider === "none" ? "" : settings.ai?.apiKeys?.[aiProvider];
+    console.log(
+      aiProvider === "none"
+        ? "AI curation: off (local ranking remains available)"
+        : `AI curation: ${aiProvider} selected (${storedKey || environmentKey ? "key available" : "key missing"})`,
     );
   } catch (error) {
     healthy = false;
@@ -37,18 +117,10 @@ if (existsSync(settingsPath)) {
 if (existsSync(audienceSnapshotsPath)) {
   try {
     const snapshots = JSON.parse(await readFile(audienceSnapshotsPath, "utf8"));
-    if (!snapshots || typeof snapshots !== "object" || Array.isArray(snapshots))
-      throw new Error("snapshot history must be an object");
-    for (const snapshot of Object.values(snapshots)) {
-      if (
-        !snapshot ||
-        typeof snapshot !== "object" ||
-        typeof snapshot.total !== "number" ||
-        !Number.isFinite(snapshot.total) ||
-        typeof snapshot.checkedAt !== "string"
-      ) throw new Error("snapshot history contains an invalid entry");
-    }
-    console.log(`Audience history: readable (${Object.keys(snapshots).length} snapshots)`);
+    const history = assertAudienceHistory(snapshots);
+    console.log(
+      `Audience history: readable (${history.count} accounts, ${history.version})`,
+    );
   } catch (error) {
     healthy = false;
     console.error(

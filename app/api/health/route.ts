@@ -8,11 +8,11 @@ export async function GET() {
     return Response.json({
       service: "control-center",
       status: "ready",
-      version: "0.2.1",
+      version: "0.3.0",
     });
   } catch {
     return Response.json(
-      { service: "control-center", status: "unhealthy", version: "0.2.1" },
+      { service: "control-center", status: "unhealthy", version: "0.3.0" },
       { status: 503 },
     );
   }

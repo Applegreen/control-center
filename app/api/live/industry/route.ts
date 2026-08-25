@@ -3,10 +3,13 @@ import { readSettings } from "@/lib/server/settings";
 import { parseFeed, readIndustrySnapshots, readSource, writeIndustrySnapshots } from "@/lib/server/rss";
 import { isFeedDocument } from "@/lib/feed-discovery";
 import { INDUSTRY_FRESHNESS_HOURS } from "@/lib/freshness";
-import { syncContentItems } from "@/lib/server/database";
+import { getDatabase, syncContentItems } from "@/lib/server/database";
 import { safeFetchText } from "@/lib/server/safe-fetch";
-import { freshIndustryDiscoveries, sortIndustryItems, splitIndustryLibrary } from "@/lib/industry";
+import { freshIndustryDiscoveries, sortIndustryItems, splitIndustryLibrary, topicDiscoveryStatus } from "@/lib/industry";
 import { collectionScope } from "@/lib/collection-scope";
+import { curateIndustryDiscoveries, selectDiverseIndustryDiscoveries } from "@/lib/industry-curation";
+import { listIndustryDiscoveries, pruneIndustryDiscoveries, upsertIndustryDiscoveries } from "@/lib/industry-store";
+import { curateIndustryWithAi } from "@/lib/server/industry-ai";
 
 export const runtime = "nodejs";
 
@@ -35,8 +38,10 @@ async function readTopicNews(keywords: string[]) {
   const items: LiveStory[] = [];
   const errors: string[] = [];
   let endpoint = "https://news.google.com/";
+  let successfulQueries = 0;
   results.forEach((result) => {
     if (result.status === "fulfilled") {
+      successfulQueries += 1;
       endpoint = result.value.endpoint;
       items.push(...result.value.items);
     } else {
@@ -44,7 +49,7 @@ async function readTopicNews(keywords: string[]) {
     }
   });
   const uniqueItems = [...new Map(items.map((item) => [item.url || item.id, item])).values()];
-  return { items: uniqueItems, errors, endpoint, queryCount: queries.length };
+  return { items: uniqueItems, errors, endpoint, queryCount: queries.length, successfulQueries };
 }
 
 async function collectIndustry() {
@@ -59,18 +64,29 @@ async function collectIndustry() {
   const topicScope = settings.industry.keywords.length
     ? collectionScope("industry-topics-v2", settings.industry.keywords)
     : "";
-  const activeScopes = [...sourceScopes.values(), ...(topicScope ? [topicScope] : [])];
+  const discoveryScopes = [...sourceScopes.values(), ...(topicScope ? [topicScope] : [])];
+  const surfacedScope = collectionScope("industry-curated-v1", [
+    settings.industry.description,
+    ...settings.industry.keywords.map((keyword) => `topic:${keyword}`),
+    ...settings.industry.excludedTerms.map((term) => `exclude:${term}`),
+    `limit:${settings.industry.dailyLimit}`,
+  ]);
   if (!settings.industry.sources.length && !settings.industry.keywords.length) {
-    const saved = syncContentItems<LiveStory>("industry", [], { freshSince, freshUntil, activeScopes });
+    const saved = syncContentItems<LiveStory>("industry", [], {
+      freshSince,
+      freshUntil,
+      activeScopes: [],
+      currentSweepOnly: true,
+    });
     const hasSavedLibrary = saved.active.length + saved.archived.length > 0;
     const { archivedItems, historyItems } = splitIndustryLibrary(saved.archived);
-    return Response.json({ configured: hasSavedLibrary, checkedAt, items: saved.active, archivedItems, archiveCount: archivedItems.length, historyItems, historyCount: historyItems.length, errors: hasSavedLibrary ? ["Tracking is paused because no Industry sources are configured. Saved history remains available."] : [], sourceStatuses: [], freshnessHours: INDUSTRY_FRESHNESS_HOURS } satisfies LiveFeedResponse);
+    return Response.json({ configured: hasSavedLibrary, checkedAt, items: saved.active, archivedItems, archiveCount: archivedItems.length, historyItems, historyCount: historyItems.length, errors: hasSavedLibrary ? ["Tracking is paused because no Industry sources are configured. Saved history remains available."] : [], sourceStatuses: [], freshnessHours: INDUSTRY_FRESHNESS_HOURS, discoveredCount: 0, surfacedLimit: settings.industry.dailyLimit, curationMode: "local", providerStatuses: [] } satisfies LiveFeedResponse);
   }
   const snapshots = await readIndustrySnapshots();
   const nextSnapshots = { ...snapshots };
   const [sourceResults, topicResult] = await Promise.all([
     Promise.allSettled(settings.industry.sources.map((source) => readSource(source, snapshots[source.id]))),
-    settings.industry.keywords.length ? readTopicNews(settings.industry.keywords) : Promise.resolve({ items: [] as LiveStory[], errors: [] as string[], endpoint: "", queryCount: 0 }),
+    settings.industry.keywords.length ? readTopicNews(settings.industry.keywords) : Promise.resolve({ items: [] as LiveStory[], errors: [] as string[], endpoint: "", queryCount: 0, successfulQueries: 0 }),
   ]);
   const siteItems: LiveStory[] = [];
   const errors: string[] = [];
@@ -90,16 +106,109 @@ async function collectIndustry() {
   });
   if (snapshotsUpdated) await writeIndustrySnapshots(nextSnapshots);
   if (settings.industry.keywords.length) {
-    sourceStatuses.push({ sourceId: "topic-discovery", source: "Topic discovery", mode: "topics", endpoint: topicResult.endpoint, state: "live", message: `${topicResult.items.length} current stories across ${settings.industry.keywords.length} configured topic${settings.industry.keywords.length === 1 ? "" : "s"}` });
+    const status = topicDiscoveryStatus({
+      endpoint: topicResult.endpoint,
+      itemCount: topicResult.items.length,
+      keywordCount: settings.industry.keywords.length,
+      successfulQueries: topicResult.successfulQueries,
+    });
+    if (status) sourceStatuses.push(status);
   }
   errors.push(...topicResult.errors);
   const topicItems = topicScope
     ? topicResult.items.map((item) => ({ ...item, collectionScope: topicScope }))
     : [];
   const currentItems = freshIndustryDiscoveries(siteItems, topicItems, Date.parse(checkedAt));
-  const saved = syncContentItems<LiveStory>("industry", currentItems, { freshSince, freshUntil, activeScopes });
+  const database = getDatabase();
+  upsertIndustryDiscoveries(database, currentItems, checkedAt);
+  pruneIndustryDiscoveries(database, { now: checkedAt });
+  const rawItems = listIndustryDiscoveries<LiveStory>(database, {
+    since: freshSince,
+    until: freshUntil,
+    collectionScopes: discoveryScopes,
+    limit: 10_000,
+  }).map((record) => ({
+    ...record.item,
+    discoveredAt: record.item.discoveredAt || record.firstSeenAt,
+  }));
+  const local = curateIndustryDiscoveries(rawItems, {
+    now: Date.parse(checkedAt),
+    limit: settings.industry.dailyLimit,
+    topicTerms: settings.industry.keywords,
+    excludeTerms: settings.industry.excludedTerms,
+  });
+  let selected = local.selected;
+  let curationMode: NonNullable<LiveFeedResponse["curationMode"]> = "local";
+  const providerStatuses: NonNullable<LiveFeedResponse["providerStatuses"]> = [];
+  if (settings.ai.provider === "none") {
+    providerStatuses.push({
+      provider: "AI curation",
+      state: "disabled",
+      message: `Local importance ranking surfaced ${selected.length} of ${rawItems.length} current discoveries.`,
+    });
+  } else {
+    const pool = [...local.selected, ...local.deferred]
+      .filter((candidate) => candidate.deferredReason !== "similar-event")
+      .sort((left, right) => right.score - left.score);
+    try {
+      const ai = await curateIndustryWithAi(settings, pool, {
+        niche: settings.industry.description,
+        keywords: settings.industry.keywords,
+        excludedTerms: settings.industry.excludedTerms,
+        limit: settings.industry.dailyLimit,
+        now: Date.parse(checkedAt),
+      });
+      const byId = new Map(pool.map((candidate) => [candidate.discoveryId, candidate]));
+      const aiScores = new Map(ai.selections.map((selection) => [selection.discoveryId, selection]));
+      const reranked = ai.selections.flatMap((selection) => {
+        const candidate = byId.get(selection.discoveryId);
+        return candidate ? [{
+          ...candidate,
+          score: selection.score,
+          reasons: [selection.reason, ...candidate.reasons],
+        }] : [];
+      });
+      const minimumUsefulSet = Math.min(20, settings.industry.dailyLimit, local.selected.length);
+      const targetSize = Math.min(
+        settings.industry.dailyLimit,
+        Math.max(reranked.length, minimumUsefulSet),
+      );
+      selected = selectDiverseIndustryDiscoveries(
+        [...reranked, ...local.selected],
+        { limit: targetSize },
+      ).selected;
+      curationMode = ai.provider;
+      providerStatuses.push({
+        provider: `${ai.provider} curation`,
+        state: "live",
+        message: `${aiScores.size} semantic picks; ${selected.length} important updates surfaced from ${rawItems.length} discoveries.`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "AI curation failed";
+      errors.push(`AI curation: ${message} Local ranking was used instead.`);
+      providerStatuses.push({
+        provider: `${settings.ai.provider} curation`,
+        state: "degraded",
+        message: `${message} Local ranking surfaced ${selected.length} updates.`,
+      });
+    }
+  }
+  const surfacedItems: LiveStory[] = selected.map((candidate) => ({
+    ...candidate.item,
+    id: `industry:${candidate.discoveryId}`,
+    collectionScope: surfacedScope,
+    importanceScore: candidate.score,
+    importanceReason: candidate.reasons.slice(0, 3).join(" · ") ||
+      "Ranked as a timely, relevant industry update.",
+  }));
+  const saved = syncContentItems<LiveStory>("industry", surfacedItems, {
+    freshSince,
+    freshUntil,
+    activeScopes: [surfacedScope],
+    currentSweepOnly: true,
+  });
   const { archivedItems, historyItems } = splitIndustryLibrary(saved.archived);
-  return Response.json({ configured: true, checkedAt, items: sortIndustryItems(saved.active, "newest"), archivedItems, archiveCount: archivedItems.length, historyItems, historyCount: historyItems.length, errors, sourceStatuses, freshnessHours: INDUSTRY_FRESHNESS_HOURS } satisfies LiveFeedResponse);
+  return Response.json({ configured: true, checkedAt, items: sortIndustryItems(saved.active, "important"), archivedItems, archiveCount: archivedItems.length, historyItems, historyCount: historyItems.length, errors, sourceStatuses, freshnessHours: INDUSTRY_FRESHNESS_HOURS, discoveredCount: rawItems.length, surfacedLimit: settings.industry.dailyLimit, curationMode, providerStatuses } satisfies LiveFeedResponse);
 }
 
 export async function GET() {

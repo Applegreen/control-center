@@ -32,9 +32,10 @@ npm run launch -- --port=3001  # use another local port
 The Today page shows the four live areas and links directly to the right Settings section.
 
 1. **Industry:** add any public homepage, RSS/Atom feed, and optional topic phrases.
-2. **Mentions:** add exact names, brands, handles, official domains, and distinguishing identity anchors.
+2. **Mentions:** add exact names, brands, handles, official domains, distinguishing identity anchors, and known false-positive contexts.
 3. **Audience:** add exact public profile URLs or handles for the platforms you use.
 4. **Newsletters (optional):** connect any Gmail account with a read-only OAuth client and choose the Gmail search query.
+5. **AI curation (optional):** select OpenAI, Anthropic, or Gemini and save that provider&apos;s key for semantic Industry curation and broader Mention research.
 
 Collectors run shortly after startup, every 15 minutes while the app remains open, whenever a live page is opened, and when **Refresh** is pressed.
 
@@ -46,26 +47,30 @@ Each configured URL is treated independently and can belong to any niche.
 2. If no feed is readable, it merges sitemap locations from `robots.txt` and common sitemap paths, including recursive sitemap indexes.
 3. A first sitemap scan records a quiet baseline. Later scans report newly discovered pages.
 
-A blocked homepage does not stop feed or sitemap discovery. Active Industry cards are limited to items published or newly discovered in the last 24 hours; older saved items remain under **History**. **Archived** contains only items a user explicitly archived. Undated feed entries establish a baseline instead of being presented as fresh news.
+A blocked homepage does not stop feed or sitemap discovery. Raw discoveries are stored separately from the reading queue. Canonical URL/title deduplication, watched-source priority, recency, configured topics and exclusions, material-change signals, event similarity, and source diversity select at most the configured daily target (30 by default). This keeps hundreds of broad discoveries available to the collector without presenting hundreds of cards as equally important.
 
-Topic phrases add broader Google News discovery, while watched-site updates remain prioritized independently.
+Active Industry cards are limited to items published or newly discovered in the last 24 hours; older surfaced items remain under **History**. **Archived** contains only items a user explicitly archived. Undated feed entries establish a baseline instead of being presented as fresh news. Topic phrases add broader Google News discovery, while watched-site updates remain prioritized independently. A selected AI provider can rerank the bounded candidate set; failures automatically fall back to the local importance model.
 
 ## Mentions
 
-Mention discovery searches Google News and Bing News across the previous seven days. Multi-word names and brands are searched as complete phrases, never as loose individual words.
+Mention discovery searches Google News and Bing News across the previous seven days. When a user enables an AI provider, a cached two-hour broad-web pass also searches articles, podcasts, videos, directories, forums, GitHub, Reddit, and supported public social pages. Multi-word names and brands are searched as complete phrases, never as loose individual words.
+
+For predictable laptop-friendly collection, a watchlist can contain up to 12 names, handles, and official websites combined, plus up to 24 identity anchors and 24 negative contexts. Every configured identity is processed; provider failures are reported as partial coverage rather than silently dropping entries.
 
 Strict mode requires identity evidence:
 
 - unique handles and official domains can qualify directly;
-- common names and broad brand phrases need a second configured signal;
+- common names and broad brand phrases need direct-page identity, niche, or anchor context;
 - roles, products, locations, collaborators, and niche topics can serve as anchors;
 - weak namesakes and broad word overlap are rejected as noise;
-- discovery-query words never count as article evidence; a result must contain the configured identity before it can qualify;
+- search snippets and AI output never count as proof; the app fetches the direct canonical URL and requires literal page-local identity evidence;
+- configured negative terms hard-reject recurring namesakes and unrelated brand contexts;
+- official domains establish identity but can be excluded from the third-party Mention queue;
 - literal but ambiguous matches stay review-only when strict mode is off; strict mode requires a second identity signal or multiple configured identity anchors.
 
 Canonical story identities are stored locally. Once a result is archived, later scans do not resurface the same story through a search-provider wrapper or tracking URL.
 
-Public search is useful discovery, not complete web coverage.
+Public search is useful discovery, not complete web coverage. Pages that block signed-out verification are rejected instead of being presented as certain mentions. Facebook posts are intentionally excluded from broad research because the app cannot reliably verify exact public-post text without an official connection.
 
 ## Audience tracking
 
@@ -75,7 +80,18 @@ Public pages are checked first and do not require platform API keys. Optional of
 
 Public collection is provider-controlled and best effort. A platform can change or block signed-out metadata without notice. A failed check is shown as unavailable or limited, never as a false zero; a prior verified value is clearly labeled as last known. Combined totals are sums across platforms, not deduplicated people.
 
-Follower and subscriber growth is measured against the preceding successful check and remains visible on cached page loads. Post, video, and thread counts are shown only as separate content metadata; they are never used as audience growth.
+Follower and subscriber growth is measured against the newest comparable sample from 24–36 hours earlier. The app keeps one historical anchor per 12-hour bucket, so hourly/manual refreshes update the live total without becoming a misleading baseline. Until a true yesterday sample exists, the UI says **Baseline**. Post, video, and thread counts are shown only as separate content metadata; they are never used as audience growth.
+
+## Optional AI curation
+
+No AI key is required for installation or for the local Industry, news Mention, sitemap, RSS, Audience, Newsletter, Task, or Reminder features. Under **Settings → AI curation**, a user can explicitly choose OpenAI, Anthropic, or Gemini, optionally override the model, and save only that provider&apos;s key.
+
+The selected provider is used for two bounded background jobs:
+
+- semantic reranking of already-discovered Industry candidates, with a deterministic local fallback and the same daily cap;
+- cached broad-web Mention discovery, followed by independent direct-page verification inside Control Center.
+
+Keys can instead be supplied as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GEMINI_API_KEY` in `.env.local`. Environment keys are still inert until the matching provider is selected in Settings. Provider calls can incur usage charges. Saved keys remain in the local server-side settings file, never return through the Settings API, and are not sent to any unselected provider.
 
 ## Tasks
 
@@ -111,8 +127,8 @@ Existing installations that already contain `./.control-center` continue using t
 
 Stored files include:
 
-- `settings.json`: configuration and provider tokens, owner-readable on POSIX systems;
-- `control-center.sqlite`: content, archive state, reminders, and tasks;
+- `settings.json`: configuration, OAuth tokens, and any saved AI/provider keys, owner-readable on POSIX systems;
+- `control-center.sqlite`: raw Industry discoveries, surfaced content, archive state, reminders, and tasks;
 - snapshot JSON files: sitemap and audience baselines.
 
 Secrets never return through the Settings API. They remain local, but they are not encrypted at rest. Protect the operating-system account and any backups.
@@ -123,7 +139,7 @@ Secrets never return through the Settings API. They remain local, but they are n
 npm run backup
 ```
 
-This creates a consistent SQLite backup plus settings and snapshot files under `~/Documents/Control Center Backups/<timestamp>`. It is a private full backup and may contain OAuth tokens.
+This creates a consistent SQLite backup plus settings and snapshot files under `~/Documents/Control Center Backups/<timestamp>`. It is a private full backup and may contain OAuth tokens or AI provider keys.
 
 To choose another destination:
 

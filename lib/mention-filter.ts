@@ -4,7 +4,7 @@ import type { LiveStory } from "@/lib/types";
 
 export const DEFAULT_MENTION_WINDOW_DAYS = 7;
 export const DEFAULT_FUTURE_TOLERANCE_HOURS = 24;
-export const MENTION_COLLECTION_VERSION = "mentions-v5";
+export const MENTION_COLLECTION_VERSION = "mentions-v7";
 
 export type MentionQueryOptions = {
   identitySignals?: string[];
@@ -35,6 +35,12 @@ export type MentionEvaluation = {
   review: boolean;
   score: number;
   reasons: string[];
+};
+
+export type MentionFreshnessEvidence = {
+  publishedAt?: string | null;
+  firstDiscoveredAt?: string | null;
+  canonicalPageVerified: boolean;
 };
 
 type MentionStoryAliasInput = Pick<LiveStory, "title" | "url" | "source" | "publishedAt"> & {
@@ -110,6 +116,15 @@ function containsIdentitySignal(text: string, signal: string) {
   return signal.trim().startsWith("@")
     ? containsExplicitHandle(text, signal)
     : containsMentionSignal(text, signal);
+}
+
+function containsConfiguredIdentitySpelling(text: string, signal: string) {
+  const raw = signal.trim().normalize("NFKC");
+  if (!raw) return false;
+  if (raw.startsWith("@")) return containsExplicitHandle(text, raw);
+  if (looksLikeDomain(raw)) return containsMentionSignal(text, raw);
+  return new RegExp(`(^|[^\\p{L}\\p{N}])${escapedPattern(raw)}(?=$|[^\\p{L}\\p{N}])`, "u")
+    .test(text.normalize("NFKC"));
 }
 
 export function isUniqueIdentitySignal(value: string) {
@@ -348,6 +363,21 @@ export function isWithinMentionWindow(
   return timestamp >= now - windowDays * 86_400_000 && timestamp <= now + futureToleranceHours * 3_600_000;
 }
 
+/**
+ * Uses a real publication timestamp whenever one is present. Only genuinely
+ * undated, canonically page-verified mentions may fall back to first discovery,
+ * so a stale or malformed publisher date cannot be made fresh by rediscovery.
+ */
+export function isFreshMentionEvidence(
+  evidence: MentionFreshnessEvidence,
+  options: { now?: number | string | Date; windowDays?: number; futureToleranceHours?: number } = {},
+) {
+  const publishedAt = evidence.publishedAt?.trim() || "";
+  if (publishedAt) return isWithinMentionWindow(publishedAt, options);
+  if (!evidence.canonicalPageVerified) return false;
+  return isWithinMentionWindow(evidence.firstDiscoveredAt?.trim() || "", options);
+}
+
 export function evaluateMention(
   item: LiveStory,
   primary: string,
@@ -369,7 +399,8 @@ export function evaluateMention(
   const primaryDirect = primaryInFeed || primaryInPage || primaryInPublisher;
   const literalHandleEvidence = containsExplicitHandle(directText, primary) ||
     containsObservedHandle(directText, primary);
-  const matchedNegative = (evidence.negativeTerms ?? []).find((term) => containsMentionSignal(directText, term));
+  const negativeContextText = `${feedText} ${pageIdentityContext} ${publisherText}`;
+  const matchedNegative = (evidence.negativeTerms ?? []).find((term) => containsMentionSignal(negativeContextText, term));
   if (matchedNegative) {
     return { accepted: false, confidence: "medium", review: false, score: 0, reasons: [`Excluded context: ${matchedNegative}`] };
   }
@@ -387,9 +418,13 @@ export function evaluateMention(
   const otherSignals = matchedSignals.filter((signal) => normalizeSignal(signal) !== normalizeSignal(primary));
   const matchedAnchors = identityAnchors.filter((signal) => containsMentionSignal(corroborationText, signal));
   const matchedNiche = (evidence.nicheContexts ?? []).filter((signal) => containsMentionSignal(corroborationText, signal));
+  const matchedPageAnchors = identityAnchors.filter((signal) => containsMentionSignal(pageIdentityContext, signal));
   const primaryIsUnique = isUniqueIdentitySignal(primary);
   const strongCorroborator = otherSignals.some(isUniqueIdentitySignal);
   const pageVerified = primaryInPage || primaryInPublisher;
+  const directPageIdentityContext = primaryInPage &&
+    containsConfiguredIdentitySpelling(pageText, primary) &&
+    matchedPageAnchors.length > 0;
 
   let score = primaryDirect ? 45 : 25;
   if (pageVerified) score += 15;
@@ -401,7 +436,7 @@ export function evaluateMention(
   score = Math.min(100, score);
 
   const highConfidence = primaryDirect && (
-    primaryIsUnique || literalHandleEvidence || strongCorroborator || otherSignals.length > 0 || matchedAnchors.length >= 2
+    primaryIsUnique || literalHandleEvidence || strongCorroborator || otherSignals.length > 0 || matchedAnchors.length >= 2 || directPageIdentityContext
   );
   const reviewCandidate = !highConfidence && !strictMode;
   const accepted = highConfidence || reviewCandidate;
@@ -410,6 +445,7 @@ export function evaluateMention(
     ...otherSignals.slice(0, 3).map((signal) => `Identity signal: ${signal}`),
     ...matchedAnchors.slice(0, 3).map((signal) => `Identity context: ${signal}`),
     ...matchedNiche.slice(0, 3).map((signal) => `Niche context: ${signal}`),
+    ...(directPageIdentityContext ? ["Verified on the canonical page with configured identity context"] : []),
   ];
   if (!accepted && strictMode) reasons.push("Rejected: an ambiguous identity lacked corroboration.");
   return {

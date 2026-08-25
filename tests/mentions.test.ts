@@ -7,11 +7,21 @@ import {
   buildMentionQueryPlans,
   canonicalizeMentionUrl,
   evaluateMention,
+  isFreshMentionEvidence,
   isWithinMentionWindow,
   MENTION_COLLECTION_VERSION,
   mentionIdentity,
   normalizeSignal,
 } from "../lib/mention-filter";
+import {
+  assertMentionIdentityLimit,
+  cleanBoundedMentionValues,
+  groupMentionIdentities,
+  MAX_MENTION_CONTEXT_VALUES,
+  MAX_MENTION_IDENTITIES,
+  mentionResearchCoverage,
+  settleMentionWork,
+} from "../lib/mention-work";
 import { initializeContentStore, listContentItems, setContentArchived, upsertContentItems } from "../lib/archive-store";
 import type { LiveStory } from "../lib/types";
 
@@ -207,7 +217,7 @@ test("a literal ambiguous brand needs strong configured corroboration in strict 
 });
 
 test("the evidence-version scope retires prior permissive mention results", () => {
-  assert.equal(MENTION_COLLECTION_VERSION, "mentions-v5");
+  assert.equal(MENTION_COLLECTION_VERSION, "mentions-v7");
 });
 
 test("strict review evidence must be local to the identity and preserve configured brand casing", () => {
@@ -222,6 +232,22 @@ test("strict review evidence must be local to the identity and preserve configur
   );
   assert.equal(relevantPerson.accepted, false);
   assert.equal(relevantPerson.confidence, "medium");
+
+  const anchoredPerson = evaluateMention(
+    story({ title: "Creators worth following" }),
+    "Alex Morgan",
+    signals,
+    ["Northstar founder"],
+    true,
+    {
+      queryMatched: true,
+      pageText: "Alex Morgan is the Northstar founder and an AI educator sharing practical automation guidance.",
+      nicheContexts: ["AI"],
+    },
+  );
+  assert.equal(anchoredPerson.accepted, true);
+  assert.equal(anchoredPerson.confidence, "high");
+  assert.match(anchoredPerson.reasons.join(" "), /canonical page/i);
 
   const distantNamesake = evaluateMention(
     story({ title: "A transportation update" }),
@@ -247,6 +273,95 @@ test("strict review evidence must be local to the identity and preserve configur
     },
   );
   assert.equal(genericPhrase.accepted, false);
+});
+
+test("an exact ambiguous alias needs identity evidence beyond one generic niche term", () => {
+  const nicheOnly = evaluateMention(
+    story({ title: "An independent directory profile", summary: "" }),
+    "Future Tools",
+    ["Future Tools", "futuretools.io"],
+    [],
+    true,
+    {
+      canonicalUrl: "https://publisher.example/future-tools-profile",
+      pageText: "Future Tools organizes and categorizes AI tools for creators.",
+      nicheContexts: ["AI tools"],
+    },
+  );
+  assert.equal(nicheOnly.accepted, false);
+  assert.equal(nicheOnly.confidence, "medium");
+
+  const anchored = evaluateMention(
+    story({ title: "An independent directory profile", summary: "" }),
+    "Future Tools",
+    ["Future Tools", "futuretools.io"],
+    ["Matt Wolfe's directory"],
+    true,
+    {
+      canonicalUrl: "https://publisher.example/future-tools-profile",
+      pageText: "Future Tools is Matt Wolfe's directory for organizing and categorizing AI tools for creators.",
+      nicheContexts: ["AI tools"],
+    },
+  );
+  assert.equal(anchored.accepted, true);
+  assert.equal(anchored.confidence, "high");
+  assert.match(anchored.reasons.join(" "), /configured identity context/i);
+});
+
+test("mention settings enforce a bounded portable watchlist", () => {
+  const identities = Array.from({ length: MAX_MENTION_IDENTITIES }, (_, index) => `Brand ${index}`);
+  assert.deepEqual(
+    cleanBoundedMentionValues([" Brand 0 ", "Brand 0", "Brand 1"], "Mention identities", MAX_MENTION_IDENTITIES),
+    ["Brand 0", "Brand 1"],
+  );
+  assert.doesNotThrow(() => assertMentionIdentityLimit(identities, []));
+  assert.throws(
+    () => assertMentionIdentityLimit([...identities, "One more"], []),
+    /up to 12 unique/i,
+  );
+  assert.throws(
+    () => cleanBoundedMentionValues(
+      Array.from({ length: MAX_MENTION_CONTEXT_VALUES + 1 }, (_, index) => `Context ${index}`),
+      "Mention contexts",
+      MAX_MENTION_CONTEXT_VALUES,
+    ),
+    /up to 24 entries/i,
+  );
+});
+
+test("AI mention batches include every configured identity and report partial coverage", () => {
+  const terms = Array.from({ length: 9 }, (_, index) => `Brand ${index}`);
+  const websites = ["brand.example", "another.example"];
+  const groups = groupMentionIdentities(terms, websites, 2);
+  assert.deepEqual(groups.flat(), [...terms, ...websites]);
+  const results: PromiseSettledResult<unknown>[] = groups.map((_, index) =>
+    index === 2
+      ? { status: "rejected", reason: new Error("provider failure") }
+      : { status: "fulfilled", value: [] });
+  assert.deepEqual(mentionResearchCoverage(groups, results), {
+    totalIdentityCount: 11,
+    completedIdentityCount: 9,
+    failedIdentityCount: 2,
+    failedGroupCount: 1,
+  });
+});
+
+test("mention collection settles every task without exceeding its worker bound", async () => {
+  const tasks = Array.from({ length: 17 }, (_, index) => index);
+  let active = 0;
+  let peak = 0;
+  const results = await settleMentionWork(tasks, 3, async (value) => {
+    active += 1;
+    peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    active -= 1;
+    if (value === 7) throw new Error("expected failure");
+    return value * 2;
+  });
+  assert.equal(results.length, tasks.length);
+  assert.equal(peak, 3);
+  assert.equal(results.filter(({ status }) => status === "fulfilled").length, 16);
+  assert.equal(results[7].status, "rejected");
 });
 
 test("treats configured handles and canonical domains as strong direct identities", () => {
@@ -359,6 +474,39 @@ test("uses inclusive seven-day and bounded future publication windows", () => {
   assert.equal(isWithinMentionWindow("2026-08-25T12:00:00Z", { now }), true);
   assert.equal(isWithinMentionWindow("2026-08-25T12:00:01Z", { now }), false);
   assert.equal(isWithinMentionWindow("not-a-date", { now }), false);
+});
+
+test("undated mentions use first discovery only after canonical page verification", () => {
+  const now = "2026-08-24T12:00:00Z";
+  assert.equal(isFreshMentionEvidence({
+    publishedAt: null,
+    firstDiscoveredAt: "2026-08-24T10:00:00Z",
+    canonicalPageVerified: true,
+  }, { now }), true);
+  assert.equal(isFreshMentionEvidence({
+    publishedAt: "",
+    firstDiscoveredAt: "2026-08-24T10:00:00Z",
+    canonicalPageVerified: false,
+  }, { now }), false);
+  assert.equal(isFreshMentionEvidence({
+    publishedAt: null,
+    firstDiscoveredAt: "2026-08-17T11:59:59Z",
+    canonicalPageVerified: true,
+  }, { now }), false);
+});
+
+test("a dated mention cannot be refreshed by a newer discovery timestamp", () => {
+  const now = "2026-08-24T12:00:00Z";
+  assert.equal(isFreshMentionEvidence({
+    publishedAt: "2026-08-17T11:59:59Z",
+    firstDiscoveredAt: "2026-08-24T10:00:00Z",
+    canonicalPageVerified: true,
+  }, { now }), false);
+  assert.equal(isFreshMentionEvidence({
+    publishedAt: "not-a-date",
+    firstDiscoveredAt: "2026-08-24T10:00:00Z",
+    canonicalPageVerified: true,
+  }, { now }), false);
 });
 
 test("configured negative context rejects an otherwise strong candidate", () => {

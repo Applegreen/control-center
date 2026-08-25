@@ -7,13 +7,24 @@ import {
   buildMentionQueryPlans,
   canonicalizeMentionUrl,
   evaluateMention,
-  isWithinMentionWindow,
+  isFreshMentionEvidence,
   MENTION_COLLECTION_VERSION,
   mentionIdentity,
 } from "@/lib/mention-filter";
 import { syncContentItems } from "@/lib/server/database";
 import { googleNewsArticleId, resolveGoogleNewsUrl } from "@/lib/server/google-news";
 import { collectionScope } from "@/lib/collection-scope";
+import {
+  configuredMentionIdentities,
+  MENTION_SEARCH_CONCURRENCY,
+  settleMentionWork,
+} from "@/lib/mention-work";
+import {
+  isOwnedMentionUrl,
+  readVerifiedMentionPage,
+  type VerifiedMentionPage,
+} from "@/lib/server/mention-page";
+import { researchMentionsWithAi } from "@/lib/server/mention-research";
 
 export const runtime = "nodejs";
 
@@ -36,36 +47,12 @@ function providerUrl(provider: SearchProvider, query: string) {
   return `https://www.bing.com/news/search?q=${encodeURIComponent(bingQuery)}&format=rss`;
 }
 
-function readablePageText(html: string) {
-  return html
-    .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;|&#160;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;|&#34;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 250_000);
-}
-
 function isSearchWrapper(value: string) {
   try {
     const hostname = new URL(value).hostname.toLowerCase();
     return hostname === "news.google.com" || hostname === "bing.com" || hostname.endsWith(".bing.com");
   } catch {
     return true;
-  }
-}
-
-async function optionalPageText(canonicalUrl: string) {
-  if (!canonicalUrl || isSearchWrapper(canonicalUrl)) return "";
-  try {
-    const response = await safeFetchText(canonicalUrl, { timeoutMs: 8_000 });
-    return readablePageText(response.text);
-  } catch {
-    return "";
   }
 }
 
@@ -81,17 +68,35 @@ function mergeMention(existing: LiveStory | undefined, incoming: LiveStory) {
   };
 }
 
+async function readVerifiedPages(urls: string[]) {
+  const pages = new Map<string, VerifiedMentionPage | null>();
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(8, urls.length) }, async () => {
+    while (nextIndex < urls.length) {
+      const url = urls[nextIndex++];
+      pages.set(url, await readVerifiedMentionPage(url));
+    }
+  });
+  await Promise.all(workers);
+  return pages;
+}
+
 export async function GET() {
   const settings = await readSettings();
   const checkedAt = new Date().toISOString();
   const freshSince = new Date(Date.parse(checkedAt) - MENTION_WINDOW_DAYS * 86_400_000).toISOString();
   const freshUntil = new Date(Date.parse(checkedAt) + 10 * 60 * 1000).toISOString();
-  const terms = [...new Set([...settings.mentions.terms, ...settings.mentions.websites])];
+  const terms = configuredMentionIdentities(
+    settings.mentions.terms,
+    settings.mentions.websites,
+  );
   const mentionScope = terms.length ? collectionScope(MENTION_COLLECTION_VERSION, [
     `strict:${settings.mentions.strictMode}`,
     ...settings.mentions.terms.map((term) => `term:${term}`),
     ...settings.mentions.websites.map((website) => `website:${website}`),
     ...settings.mentions.identityAnchors.map((anchor) => `anchor:${anchor}`),
+    ...settings.mentions.negativeTerms.map((term) => `exclude:${term}`),
+    `exclude-owned:${settings.mentions.excludeOwnedSites}`,
     ...settings.industry.keywords.map((keyword) => `niche:${keyword}`),
   ]) : "";
   if (!terms.length) {
@@ -129,12 +134,12 @@ export async function GET() {
     })));
   });
 
-  const results = await Promise.allSettled(tasks.map(async (task) => {
+  const results = await settleMentionWork(tasks, MENTION_SEARCH_CONCURRENCY, async (task) => {
     const endpoint = providerUrl(task.provider, task.query);
     const response = await safeFetchText(endpoint);
     if (!isFeedDocument(response.text)) throw new Error("Search provider returned a non-feed response.");
     return { ...task, endpoint, items: parseFeed(response.text, task.provider) };
-  }));
+  });
 
   const errors: string[] = [];
   const filteredCounts = { rejected: 0, outsideWindow: 0 };
@@ -154,10 +159,6 @@ export async function GET() {
     summary.successes += 1;
     summary.candidates += result.value.items.length;
     for (const item of result.value.items) {
-      if (!isWithinMentionWindow(item.publishedAt, { now: checkedAt, windowDays: MENTION_WINDOW_DAYS })) {
-        filteredCounts.outsideWindow += 1;
-        continue;
-      }
       candidates.push({ task, item });
     }
   });
@@ -173,35 +174,88 @@ export async function GET() {
     item,
     canonicalUrl: canonicalizeMentionUrl(resolvedUrls.get(item.url) || item.url),
   }));
-  const pageTexts = new Map<string, string>();
-  const readableUrls = [...new Set(resolvedCandidates.map(({ canonicalUrl }) => canonicalUrl).filter((url) => url && !isSearchWrapper(url)))].slice(0, 30);
-  const pageResults = await Promise.allSettled(readableUrls.map((url) => optionalPageText(url)));
-  pageResults.forEach((result, index) => pageTexts.set(readableUrls[index], result.status === "fulfilled" ? result.value : ""));
+  let aiResearch: Awaited<ReturnType<typeof researchMentionsWithAi>> | null = null;
+  let aiProviderStatus: NonNullable<LiveFeedResponse["providerStatuses"]>[number];
+  if (settings.ai.provider === "none") {
+    aiProviderStatus = {
+      provider: "Broad web research",
+      state: "disabled",
+      message: "AI web research is off; Google News and Bing News remain active.",
+    };
+  } else {
+    try {
+      aiResearch = await researchMentionsWithAi(settings, {
+        now: Date.parse(checkedAt),
+        windowDays: MENTION_WINDOW_DAYS,
+      });
+      aiProviderStatus = {
+        provider: `${aiResearch.provider} web research`,
+        state: aiResearch.failedIdentityCount ? "degraded" : "live",
+        message: `${aiResearch.urls.length} candidate URLs found across ${aiResearch.completedIdentityCount}/${aiResearch.totalIdentityCount} configured identities; each is independently checked for direct-page evidence.`,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "AI web research failed";
+      errors.push(`Broad web research: ${message}`);
+      aiProviderStatus = {
+        provider: `${settings.ai.provider} web research`,
+        state: "degraded",
+        message,
+      };
+    }
+  }
+  const readableUrls = [...new Set([
+    ...resolvedCandidates.map(({ canonicalUrl }) => canonicalUrl),
+    ...(aiResearch?.urls || []),
+  ].filter((url) => url && !isSearchWrapper(url)))].slice(0, 60);
+  const pages = await readVerifiedPages(readableUrls);
 
   const byId = new Map<string, LiveStory>();
   for (const { task, item, canonicalUrl } of resolvedCandidates) {
+    const page = canonicalUrl ? pages.get(canonicalUrl) : null;
+    if (
+      !canonicalUrl ||
+      !page ||
+      (settings.mentions.excludeOwnedSites &&
+        isOwnedMentionUrl(page.url, settings.mentions.websites))
+    ) {
+      filteredCounts.rejected += 1;
+      continue;
+    }
+    const verifiedUrl = page.url;
+    const publishedAt = page?.publishedAt || item.publishedAt;
+    if (!isFreshMentionEvidence({
+      publishedAt,
+      firstDiscoveredAt: checkedAt,
+      canonicalPageVerified: Boolean(page?.pageText),
+    }, { now: checkedAt, windowDays: MENTION_WINDOW_DAYS })) {
+      filteredCounts.outsideWindow += 1;
+      continue;
+    }
     const evaluation = evaluateMention(
-      item,
+      { ...item, publishedAt },
       task.primary,
       identitySignals,
       settings.mentions.identityAnchors,
       settings.mentions.strictMode,
       {
-        canonicalUrl,
-        publisher: item.source,
-        pageText: pageTexts.get(canonicalUrl) || "",
+        canonicalUrl: verifiedUrl,
+        publisher: page?.source || item.source,
+        pageText: page?.pageText || "",
         nicheContexts,
+        negativeTerms: settings.mentions.negativeTerms,
       },
     );
     if (!evaluation.accepted) {
       filteredCounts.rejected += 1;
       continue;
     }
-    const id = mentionIdentity({ ...item, canonicalUrl, publisher: item.source });
+    const id = mentionIdentity({ ...item, publishedAt, canonicalUrl: verifiedUrl, publisher: page.source || item.source });
     const normalized: LiveStory = {
       ...item,
       id,
-      url: canonicalUrl || item.url,
+      url: verifiedUrl,
+      publishedAt,
+      discoveredAt: checkedAt,
       kind: "mention",
       matchedTerm: task.primary,
       confidence: evaluation.confidence,
@@ -211,19 +265,95 @@ export async function GET() {
     byId.set(id, mergeMention(byId.get(id), normalized));
   }
 
-  const discovered = [...byId.values()].sort((left, right) => Date.parse(right.publishedAt) - Date.parse(left.publishedAt));
+  let aiVerified = 0;
+  for (const researchUrl of aiResearch?.urls || []) {
+    const page = pages.get(researchUrl);
+    if (
+      !page ||
+      (settings.mentions.excludeOwnedSites &&
+        isOwnedMentionUrl(page.url, settings.mentions.websites))
+    ) {
+      filteredCounts.rejected += 1;
+      continue;
+    }
+    if (!isFreshMentionEvidence({
+      publishedAt: page.publishedAt,
+      firstDiscoveredAt: checkedAt,
+      canonicalPageVerified: true,
+    }, { now: checkedAt, windowDays: MENTION_WINDOW_DAYS })) {
+      filteredCounts.outsideWindow += 1;
+      continue;
+    }
+    const item: LiveStory = {
+      id: page.url,
+      title: page.title,
+      summary: page.summary || `Direct-page mention verified on ${page.source}.`,
+      url: page.url,
+      source: page.source,
+      publishedAt: page.publishedAt,
+      discoveredAt: checkedAt,
+      kind: "mention",
+    };
+    let accepted: { primary: string; evaluation: ReturnType<typeof evaluateMention> } | null = null;
+    for (const primary of terms) {
+      const evaluation = evaluateMention(
+        item,
+        primary,
+        identitySignals,
+        settings.mentions.identityAnchors,
+        settings.mentions.strictMode,
+        {
+          canonicalUrl: page.url,
+          publisher: page.source,
+          pageText: page.pageText,
+          nicheContexts,
+          negativeTerms: settings.mentions.negativeTerms,
+        },
+      );
+      if (evaluation.accepted) {
+        accepted = { primary, evaluation };
+        break;
+      }
+    }
+    if (!accepted) {
+      filteredCounts.rejected += 1;
+      continue;
+    }
+    const id = mentionIdentity({ ...item, canonicalUrl: page.url, publisher: page.source });
+    const normalized: LiveStory = {
+      ...item,
+      id,
+      matchedTerm: accepted.primary,
+      confidence: accepted.evaluation.confidence,
+      matchReasons: ["Found by broad web research", ...accepted.evaluation.reasons],
+      collectionScope: mentionScope,
+    };
+    byId.set(id, mergeMention(byId.get(id), normalized));
+    aiVerified += 1;
+  }
+  if (aiResearch) {
+    const incomplete = aiResearch.failedIdentityCount
+      ? ` ${aiResearch.failedIdentityCount} identities could not be searched in this pass.`
+      : "";
+    aiProviderStatus.message = `${aiResearch.urls.length} candidate URLs found across ${aiResearch.completedIdentityCount}/${aiResearch.totalIdentityCount} configured identities; ${aiVerified} passed direct-page identity and freshness checks.${incomplete}`;
+  }
+
+  const discovered = [...byId.values()].sort((left, right) =>
+    Date.parse(right.publishedAt || right.discoveredAt || "") -
+    Date.parse(left.publishedAt || left.discoveredAt || ""));
   const saved = syncContentItems<LiveStory>("mentions", discovered, { freshSince, freshUntil, activeScopes: [mentionScope] });
-  const providerStatuses = searchProviders.map((provider) => {
+  const providerStatuses: NonNullable<LiveFeedResponse["providerStatuses"]> = searchProviders.map((provider) => {
     const summary = providerSummary.get(provider)!;
-    const live = summary.successes > 0;
+    const complete = summary.requests > 0 && summary.successes === summary.requests;
     return {
       provider,
-      state: live ? "live" as const : "degraded" as const,
-      message: live
+      state: complete ? "live" as const : "degraded" as const,
+      message: summary.successes > 0
         ? `${summary.candidates} candidates across ${summary.successes}/${summary.requests} successful searches`
         : `All ${summary.requests} searches failed`,
     };
   });
+  providerStatuses.push(aiProviderStatus);
   const items = saved.active;
   const uniqueErrors = [...new Set(errors)].slice(0, 10);
   return Response.json({

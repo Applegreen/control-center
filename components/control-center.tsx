@@ -47,6 +47,7 @@ import {
   Youtube,
 } from "lucide-react";
 import type {
+  AiKeyProvider,
   AudienceMetric,
   AudiencePlatform,
   DailyBriefItem,
@@ -62,7 +63,12 @@ import type {
   WorkspaceStateResponse,
 } from "@/lib/types";
 import { isDailyBriefItemInWindow } from "@/lib/brief-window";
-import { combineAudienceChanges } from "@/lib/audience-growth";
+import {
+  AUDIENCE_COMPARISON_WINDOW_LABEL,
+  audienceComparisonLabel,
+  combineAudienceChanges,
+} from "@/lib/audience-growth";
+import { modelOverrideAfterProviderChange } from "@/lib/ai-settings";
 import { sortIndustryItems, type IndustrySortOrder } from "@/lib/industry";
 import { completeTaskItems } from "@/lib/tasks";
 
@@ -81,14 +87,28 @@ type SettingsSection =
   | "mentions"
   | "newsletters"
   | "audience"
+  | "ai"
   | "integrations";
 type Reminder = ReminderItem;
 type Task = TaskItem;
 
 const emptySettings: PublicSettings = {
   general: { workspaceName: "Control Center" },
-  industry: { sources: [], keywords: [] },
-  mentions: { terms: [], websites: [], identityAnchors: [], strictMode: true },
+  industry: {
+    sources: [],
+    keywords: [],
+    description: "",
+    excludedTerms: [],
+    dailyLimit: 30,
+  },
+  mentions: {
+    terms: [],
+    websites: [],
+    identityAnchors: [],
+    negativeTerms: [],
+    strictMode: true,
+    excludeOwnedSites: true,
+  },
   newsletters: {
     googleClientId: "",
     googleClientSecretSet: false,
@@ -97,6 +117,12 @@ const emptySettings: PublicSettings = {
     gmailQuery: "newer_than:30d (category:updates OR category:promotions)",
   },
   audience: { accounts: [] },
+  ai: {
+    provider: "none",
+    model: "",
+    keySet: { openai: false, anthropic: false, gemini: false },
+    keySource: { openai: "none", anthropic: "none", gemini: "none" },
+  },
   dailyBrief: { sourceLabels: [], lookbackDays: 7 },
 };
 
@@ -800,7 +826,7 @@ function IndustryView({
     useLiveData<LiveFeedResponse>("/api/live/industry");
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"active" | "history" | "archive">("active");
-  const [sortOrder, setSortOrder] = useState<IndustrySortOrder>("newest");
+  const [sortOrder, setSortOrder] = useState<IndustrySortOrder>("important");
   const archive = useArchiveAction("industry", refresh);
   const sourceItems =
     view === "archive"
@@ -827,7 +853,7 @@ function IndustryView({
       <PageHeading
         eyebrow="Live source desk"
         title="Industry"
-        description="Watched-site updates and topic news from the last 24 hours, driven entirely by your Settings."
+        description="A bounded briefing of the most useful watched-site and topic updates from the last 24 hours."
         action={
           <button
             className="button button-primary"
@@ -857,7 +883,7 @@ function IndustryView({
                 className={view === "active" ? "active" : ""}
                 onClick={() => setView("active")}
               >
-                Last 24 hours {data.items.length}
+                Important now {data.items.length}
               </button>
               <button
                 className={view === "history" ? "active" : ""}
@@ -882,6 +908,7 @@ function IndustryView({
                     setSortOrder(event.target.value as IndustrySortOrder)
                   }
                 >
+                  <option value="important">Most important</option>
                   <option value="newest">Newest first</option>
                   <option value="oldest">Oldest first</option>
                   <option value="watched">Watched sites first</option>
@@ -897,6 +924,27 @@ function IndustryView({
                 />
               </label>
             </div>
+          </div>
+          <div className="industry-curation-strip reveal delay-1">
+            <div>
+              <Sparkles size={17} />
+              <span>
+                <b>{data.items.length} surfaced</b>
+                <small>
+                  from {data.discoveredCount ?? data.items.length} current
+                  discoveries · limit {data.surfacedLimit ?? data.items.length}
+                </small>
+              </span>
+            </div>
+            <Label tone={data.curationMode === "local" ? "watch" : "verified"}>
+              {data.curationMode === "local"
+                ? "Local ranking"
+                : `${data.curationMode} assisted`}
+            </Label>
+            <p>
+              {data.providerStatuses?.[0]?.message ||
+                "Canonical deduplication, relevance, recency, material-change signals, and source diversity determine this queue."}
+            </p>
           </div>
           {data.sourceStatuses?.length ? (
             <div className="source-status-grid reveal delay-1">
@@ -945,6 +993,11 @@ function IndustryView({
                     >
                       {kindLabel(item)}
                     </Label>
+                    {item.importanceScore !== undefined && (
+                      <Label tone="verified">
+                        {item.importanceScore} importance
+                      </Label>
+                    )}
                     {view === "history" && (
                       <Label tone="watch">History</Label>
                     )}
@@ -957,6 +1010,11 @@ function IndustryView({
                     {item.summary ||
                       "Open the original source for the full update."}
                   </p>
+                  {item.importanceReason && view === "active" && (
+                    <p className="importance-reason">
+                      <Sparkles size={12} /> {item.importanceReason}
+                    </p>
+                  )}
                   <div className="story-footer">
                     <span />
                     <div>
@@ -1014,7 +1072,7 @@ function IndustryView({
                     ? "Items only appear here after you choose Archive."
                     : view === "history"
                       ? "Updates that left the current 24-hour window remain available here."
-                      : "No matching item was found by the configured sites and topic-news source during this collection window."}
+                      : "No discovery cleared the current importance threshold. The broad source scan still completed and will check again automatically."}
                 </p>
               </Panel>
             )}
@@ -1040,7 +1098,7 @@ function MentionsView({ openSettings }: { openSettings: () => void }) {
       <PageHeading
         eyebrow="Seven-day web radar"
         title="Mentions"
-        description="Recent exact and contextual matches for the identities you configure, deduplicated against your local archive."
+        description="Verified third-party pages from the past week, matched to the identities you configure and deduplicated against your local archive."
         action={
           <button
             className="button button-ghost"
@@ -1109,6 +1167,29 @@ function MentionsView({ openSettings }: { openSettings: () => void }) {
               </p>
             </div>
           </div>
+          {data.providerStatuses?.length ? (
+            <div className="provider-status-list reveal delay-1">
+              {data.providerStatuses.map((status) => (
+                <div key={status.provider} className={`provider-state state-${status.state}`}>
+                  <span>
+                    <i /> <b>{status.provider}</b>
+                  </span>
+                  <Label
+                    tone={
+                      status.state === "live"
+                        ? "positive"
+                        : status.state === "disabled"
+                          ? "watch"
+                          : "brief"
+                    }
+                  >
+                    {status.state}
+                  </Label>
+                  <p>{status.message}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <ErrorNotice
             errors={[
               ...(data.errors || []),
@@ -1125,7 +1206,7 @@ function MentionsView({ openSettings }: { openSettings: () => void }) {
                 <div className="mention-content">
                   <div className="mention-meta">
                     <b>{item.source}</b>
-                    <span>{formatDate(item.publishedAt)}</span>
+                    <span>{formatDate(item.publishedAt || item.discoveredAt || "")}</span>
                     <Label
                       tone={item.confidence === "high" ? "verified" : "watch"}
                     >
@@ -1178,12 +1259,12 @@ function MentionsView({ openSettings }: { openSettings: () => void }) {
                 <h2>
                   {view === "archive"
                     ? "No mention history"
-                    : "No supported-source matches found"}
+                    : "No verified new mentions found"}
                 </h2>
                 <p>
                   {view === "archive"
                     ? "Archived and expired mentions remain available here."
-                    : "The configured search providers returned no identity-qualified matches in the past seven days. This does not claim complete coverage of the entire web."}
+                    : "The news collectors and any enabled broad-web research found no new URL with direct identity evidence in the past seven days. Previously archived URLs stay out of this queue."}
                 </p>
               </Panel>
             )}
@@ -1412,7 +1493,7 @@ function AudienceView({ openSettings }: { openSettings: () => void }) {
             ? `${formatNumber(total)} total audience across platforms`
             : "Audience"
         }
-        description="Best-effort public totals for the exact profile URLs configured in Settings."
+        description="Best-effort public totals for the exact profile URLs in Settings, with changes measured against a verified 24–36h baseline instead of the latest refresh."
         action={
           <button
             className="button button-ghost"
@@ -1461,8 +1542,8 @@ function AudienceView({ openSettings }: { openSettings: () => void }) {
               </b>
               <span>
                 {comparisonCount
-                  ? `since prior check · ${comparisonCount} compared`
-                  : "no comparison yet"}
+                  ? `24–36h baseline · ${comparisonCount} compared`
+                  : "waiting for 24–36h baseline"}
               </span>
             </div>
           </div>
@@ -1471,7 +1552,7 @@ function AudienceView({ openSettings }: { openSettings: () => void }) {
             <div className="platform-head">
               <span>Platform</span>
               <span>Audience</span>
-              <span>Net change</span>
+              <span>{AUDIENCE_COMPARISON_WINDOW_LABEL}</span>
               <span>Status</span>
             </div>
             {items.map((item) => {
@@ -1523,10 +1604,11 @@ function AudienceView({ openSettings }: { openSettings: () => void }) {
                           ? `Last verified ${formatDate(item.lastSuccessfulAt)}`
                           : item.error
                         : item.change === null
-                          ? "No comparison yet"
-                          : item.changeComparedAt
-                            ? `vs ${formatDate(item.changeComparedAt)}`
-                            : "vs previous check"}
+                          ? "Waiting for 24–36h baseline"
+                          : audienceComparisonLabel(
+                              item.checkedAt,
+                              item.changeComparedAt,
+                            )}
                     </small>
                   </div>
                   {item.error ? (
@@ -2011,6 +2093,39 @@ function TagEditor({
   );
 }
 
+type SettingsDraft = Omit<SettingsUpdate, "ai" | "industry" | "mentions"> & {
+  industry: PublicSettings["industry"];
+  mentions: PublicSettings["mentions"];
+  ai: NonNullable<SettingsUpdate["ai"]> & {
+    keySet: PublicSettings["ai"]["keySet"];
+    keySource: PublicSettings["ai"]["keySource"];
+  };
+};
+
+const aiProviderOptions: Array<{
+  id: AiKeyProvider;
+  label: string;
+  placeholder: string;
+}> = [
+  { id: "openai", label: "OpenAI", placeholder: "sk-…" },
+  { id: "anthropic", label: "Anthropic", placeholder: "sk-ant-…" },
+  { id: "gemini", label: "Gemini", placeholder: "AIza…" },
+];
+
+function settingsDraft(settings: PublicSettings): SettingsDraft {
+  return {
+    ...settings,
+    newsletters: { ...settings.newsletters, googleClientSecret: "" },
+    audience: {
+      accounts: settings.audience.accounts.map((account) => ({
+        ...account,
+        credential: "",
+      })),
+    },
+    ai: { ...settings.ai, apiKeys: {}, clearKeys: [] },
+  };
+}
+
 function SettingsView({
   settings,
   onSaved,
@@ -2020,16 +2135,9 @@ function SettingsView({
 }) {
   const router = useRouter();
   const [section, setSection] = useState<SettingsSection>("general");
-  const [draft, setDraft] = useState<SettingsUpdate>({
-    ...settings,
-    newsletters: { ...settings.newsletters, googleClientSecret: "" },
-    audience: {
-      accounts: settings.audience.accounts.map((account) => ({
-        ...account,
-        credential: "",
-      })),
-    },
-  });
+  const [draft, setDraft] = useState<SettingsDraft>(() =>
+    settingsDraft(settings),
+  );
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [bridgePromptFallback, setBridgePromptFallback] = useState("");
@@ -2045,6 +2153,7 @@ function SettingsView({
           "mentions",
           "newsletters",
           "audience",
+          "ai",
           "integrations",
         ].includes(requested)
       )
@@ -2081,16 +2190,7 @@ function SettingsView({
       if (!response.ok)
         throw new Error(payload.error || "Could not save settings.");
       const saved = payload as PublicSettings;
-      setDraft({
-        ...saved,
-        newsletters: { ...saved.newsletters, googleClientSecret: "" },
-        audience: {
-          accounts: saved.audience.accounts.map((account) => ({
-            ...account,
-            credential: "",
-          })),
-        },
-      });
+      setDraft(settingsDraft(saved));
       onSaved(saved);
       setNotice("Saved. Live pages will use this configuration immediately.");
       return true;
@@ -2189,6 +2289,7 @@ function SettingsView({
     { id: "mentions", label: "Mentions", icon: AtSign },
     { id: "newsletters", label: "Newsletters", icon: Mail },
     { id: "audience", label: "Audience", icon: Users },
+    { id: "ai", label: "AI curation", icon: Sparkles },
     { id: "integrations", label: "Integrations", icon: Cable },
   ];
   return (
@@ -2291,6 +2392,56 @@ function SettingsView({
                   </p>
                 </div>
               </div>
+              <div className="settings-field">
+                <label>
+                  What matters in this industry?
+                  <small>
+                    A short niche description helps distinguish consequential
+                    updates from adjacent noise. It is used locally and by your
+                    selected AI provider, when enabled.
+                  </small>
+                </label>
+                <textarea
+                  value={draft.industry.description}
+                  onChange={(event) =>
+                    setDraft((value) => ({
+                      ...value,
+                      industry: {
+                        ...value.industry,
+                        description: event.target.value,
+                      },
+                    }))
+                  }
+                  placeholder="e.g. Commercial robotics, warehouse automation, major product launches, research breakthroughs, funding, and regulation"
+                />
+              </div>
+              <div className="settings-field">
+                <label>
+                  Daily reading target
+                  <small>
+                    Discovery remains broad, but only this many high-value
+                    updates can appear in the current queue.
+                  </small>
+                </label>
+                <select
+                  value={draft.industry.dailyLimit}
+                  onChange={(event) =>
+                    setDraft((value) => ({
+                      ...value,
+                      industry: {
+                        ...value.industry,
+                        dailyLimit: Number(event.target.value),
+                      },
+                    }))
+                  }
+                >
+                  <option value={20}>20 updates</option>
+                  <option value={25}>25 updates</option>
+                  <option value={30}>30 updates</option>
+                  <option value={40}>40 updates</option>
+                  <option value={50}>50 updates</option>
+                </select>
+              </div>
               <div className="source-editor">
                 <div className="source-editor-head">
                   <b>Tracked sources</b>
@@ -2360,7 +2511,7 @@ function SettingsView({
               </div>
               <TagEditor
                 label="Industry topics"
-                help="These phrases discover wider current news for this install's niche. Every update found on a watched site remains included independently."
+                help="These phrases discover wider current news and act as must-track relevance signals. Watched sites still receive priority, but low-value pages stay in discovery history instead of flooding the reading queue."
                 values={draft.industry.keywords}
                 onChange={(keywords) =>
                   setDraft((value) => ({
@@ -2369,6 +2520,18 @@ function SettingsView({
                   }))
                 }
                 placeholder="e.g. sustainable packaging"
+              />
+              <TagEditor
+                label="Exclude topics"
+                help="Filter recurring noise that is not useful for this niche, such as jobs, sports scores, coupon pages, or unrelated uses of a shared term."
+                values={draft.industry.excludedTerms}
+                onChange={(excludedTerms) =>
+                  setDraft((value) => ({
+                    ...value,
+                    industry: { ...value.industry, excludedTerms },
+                  }))
+                }
+                placeholder="e.g. job listings"
               />
               <div className="settings-caveat">
                 <Radio size={17} />
@@ -2390,13 +2553,15 @@ function SettingsView({
                   <p>
                     Each identity is searched exactly across the past seven
                     days. Direct evidence is high confidence; thinner provider
-                    matches are separated into review.
+                    matches are separated into review. Keep up to 12 names,
+                    handles, and official websites combined so every source
+                    check stays fast and reliable on a laptop.
                   </p>
                 </div>
               </div>
               <TagEditor
                 label="Names, brands, and unique handles"
-                help="Add complete names, brand phrases, and handles. The words inside a phrase are never searched separately."
+                help="Add complete names, brand phrases, and handles. The words inside a phrase are never searched separately; this list shares a 12-identity limit with official websites."
                 values={draft.mentions.terms}
                 onChange={(terms) =>
                   setDraft((value) => ({
@@ -2408,7 +2573,7 @@ function SettingsView({
               />
               <TagEditor
                 label="Official websites"
-                help="Add official domains. Exact domain matches count as strong identity evidence and improve deduplication."
+                help="Add official domains. Exact domain matches count as strong identity evidence and improve deduplication; this list shares a 12-identity limit with names and handles."
                 values={draft.mentions.websites}
                 onChange={(websites) =>
                   setDraft((value) => ({
@@ -2430,6 +2595,18 @@ function SettingsView({
                 }
                 placeholder="e.g. robotics founder"
               />
+              <TagEditor
+                label="Exclude namesakes and false contexts"
+                help="Add words tied to recurring false positives: another person's employer, sport, location, profession, product, or an unrelated meaning of the brand phrase."
+                values={draft.mentions.negativeTerms}
+                onChange={(negativeTerms) =>
+                  setDraft((value) => ({
+                    ...value,
+                    mentions: { ...value.mentions, negativeTerms },
+                  }))
+                }
+                placeholder="e.g. professional golfer"
+              />
               <label className="toggle-row">
                 <input
                   type="checkbox"
@@ -2449,6 +2626,28 @@ function SettingsView({
                   <small>
                     Reject uncorroborated namesakes while retaining contextual
                     matches for review.
+                  </small>
+                </span>
+              </label>
+              <label className="toggle-row">
+                <input
+                  type="checkbox"
+                  checked={draft.mentions.excludeOwnedSites}
+                  onChange={(event) =>
+                    setDraft((value) => ({
+                      ...value,
+                      mentions: {
+                        ...value.mentions,
+                        excludeOwnedSites: event.target.checked,
+                      },
+                    }))
+                  }
+                />
+                <span>
+                  <b>Exclude your own websites</b>
+                  <small>
+                    Official domains strengthen identity verification but do
+                    not count as third-party mentions.
                   </small>
                 </span>
               </label>
@@ -2490,14 +2689,7 @@ function SettingsView({
                       });
                       const response = await fetch("/api/settings");
                       const saved = (await response.json()) as PublicSettings;
-                      setDraft({
-                        ...saved,
-                        newsletters: {
-                          ...saved.newsletters,
-                          googleClientSecret: "",
-                        },
-                        audience: { accounts: saved.audience.accounts },
-                      });
+                      setDraft(settingsDraft(saved));
                       onSaved(saved);
                     }}
                   >
@@ -2888,6 +3080,167 @@ function SettingsView({
                   the canonical account URL, failures preserve only that
                   account&apos;s last verified value, and temporary blocks never
                   become a false zero.
+                </p>
+              </div>
+            </Panel>
+          )}
+          {section === "ai" && (
+            <Panel className="settings-panel">
+              <div className="settings-title">
+                <Sparkles />
+                <div>
+                  <p className="eyebrow">Optional background intelligence</p>
+                  <h2>AI curation and web research</h2>
+                  <p>
+                    Pick one provider to semantically rank Industry discoveries
+                    and search more of the public web for Mentions. With AI off,
+                    the app still uses its local ranking and news collectors.
+                  </p>
+                </div>
+              </div>
+              <div className="credential-grid">
+                <div className="settings-field">
+                  <label>
+                    Active provider
+                    <small>
+                      Only the selected provider is called by background jobs.
+                    </small>
+                  </label>
+                  <select
+                    value={draft.ai.provider}
+                    onChange={(event) => {
+                      const provider = event.target
+                        .value as SettingsDraft["ai"]["provider"];
+                      setDraft((value) => ({
+                        ...value,
+                        ai: {
+                          ...value.ai,
+                          provider,
+                          model: modelOverrideAfterProviderChange(
+                            value.ai.provider,
+                            provider,
+                            value.ai.model,
+                          ),
+                        },
+                      }));
+                    }}
+                  >
+                    <option value="none">Off — local ranking only</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic</option>
+                    <option value="gemini">Google Gemini</option>
+                  </select>
+                </div>
+                <div className="settings-field">
+                  <label>
+                    Model override
+                    <small>
+                      Optional. Leave blank to use the app&apos;s tested default
+                      for the selected provider. Switching providers clears an
+                      existing override so a model name is never sent to the
+                      wrong provider.
+                    </small>
+                  </label>
+                  <input
+                    value={draft.ai.model}
+                    onChange={(event) =>
+                      setDraft((value) => ({
+                        ...value,
+                        ai: { ...value.ai, model: event.target.value },
+                      }))
+                    }
+                    placeholder="Use recommended default"
+                  />
+                </div>
+              </div>
+              <div className="source-editor ai-key-editor">
+                <div className="source-editor-head">
+                  <b>Provider keys</b>
+                  <span>Save only the provider keys you want available.</span>
+                </div>
+                {aiProviderOptions.map((provider) => {
+                  const source = draft.ai.keySource[provider.id];
+                  const pendingKey = draft.ai.apiKeys?.[provider.id] || "";
+                  const saved = draft.ai.keySet[provider.id];
+                  return (
+                    <div className="ai-key-row" key={provider.id}>
+                      <div>
+                        <b>{provider.label}</b>
+                        <small>
+                          {source === "environment"
+                            ? "Available from this computer's environment"
+                            : saved
+                              ? "Saved in the private local settings file"
+                              : "Not configured"}
+                        </small>
+                      </div>
+                      <input
+                        aria-label={`${provider.label} API key`}
+                        type="password"
+                        autoComplete="off"
+                        value={pendingKey}
+                        onChange={(event) =>
+                          setDraft((value) => ({
+                            ...value,
+                            ai: {
+                              ...value.ai,
+                              apiKeys: {
+                                ...value.ai.apiKeys,
+                                [provider.id]: event.target.value,
+                              },
+                              clearKeys: (value.ai.clearKeys || []).filter(
+                                (item) => item !== provider.id,
+                              ),
+                            },
+                          }))
+                        }
+                        placeholder={saved ? "Configured ••••••••" : provider.placeholder}
+                      />
+                      {source === "settings" && (
+                        <button
+                          className="text-button danger"
+                          type="button"
+                          onClick={() =>
+                            setDraft((value) => ({
+                              ...value,
+                              ai: {
+                                ...value.ai,
+                                apiKeys: {
+                                  ...value.ai.apiKeys,
+                                  [provider.id]: "",
+                                },
+                                clearKeys: [
+                                  ...new Set([
+                                    ...(value.ai.clearKeys || []),
+                                    provider.id,
+                                  ]),
+                                ],
+                                keySet: {
+                                  ...value.ai.keySet,
+                                  [provider.id]: false,
+                                },
+                                keySource: {
+                                  ...value.ai.keySource,
+                                  [provider.id]: "none",
+                                },
+                              },
+                            }))
+                          }
+                        >
+                          <Trash2 size={13} /> Clear saved key
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="settings-caveat">
+                <ShieldCheck size={17} />
+                <p>
+                  Keys stay server-side in the private Control Center data
+                  directory and are never returned to browser code. Provider
+                  usage may incur charges; collection falls back to local logic
+                  whenever the selected provider is unavailable.
                 </p>
               </div>
             </Panel>

@@ -4,10 +4,12 @@ import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import type { AudienceMetric, AudiencePrimaryMetric } from "@/lib/types";
 import {
-  audienceGrowthFromSnapshot,
-  nextAudienceSnapshot,
+  AUDIENCE_SNAPSHOT_VERSION,
+  audienceGrowthFromHistory,
+  nextAudienceHistory,
   parseAudienceSnapshots,
-  type AudienceSnapshot,
+  type AudienceAccountHistory,
+  type AudienceSnapshotHistory,
 } from "@/lib/audience-growth";
 import type { StoredSettings } from "@/lib/server/settings";
 import { snapshotsPath } from "@/lib/server/settings";
@@ -30,7 +32,6 @@ import {
 import { readBoundedResponseText } from "@/lib/sitemap";
 
 type Account = StoredSettings["audience"]["accounts"][number];
-type SnapshotMap = Record<string, AudienceSnapshot>;
 type CollectedAccount = { total: number; handle: string; primaryLabel: AudiencePrimaryMetric; secondaryLabel?: string; secondaryValue?: number; source: string };
 type PublicProviderErrorCode = "not_found" | "provider_blocked" | "provider_unavailable";
 declare global {
@@ -59,13 +60,14 @@ const linkedInHeaders = {
   "Upgrade-Insecure-Requests": "1",
 };
 
-async function readSnapshots(): Promise<SnapshotMap> {
+async function readSnapshots(): Promise<AudienceSnapshotHistory> {
   try {
     return parseAudienceSnapshots(
       JSON.parse(await readFile(snapshotsPath(), "utf8")) as unknown,
     );
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      return { version: AUDIENCE_SNAPSHOT_VERSION, accounts: {} };
     throw new Error(
       "Audience snapshot history could not be read safely. Restore snapshots.json from a backup or move the corrupt file aside.",
       { cause: error },
@@ -73,7 +75,7 @@ async function readSnapshots(): Promise<SnapshotMap> {
   }
 }
 
-async function writeSnapshots(snapshots: SnapshotMap) {
+async function writeSnapshots(snapshots: AudienceSnapshotHistory) {
   const target = snapshotsPath();
   await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
   const temporary = `${target}.tmp`;
@@ -322,53 +324,57 @@ async function collectAccount(account: Account) {
   }
 }
 
-function cachedMetric(account: Account, prior: SnapshotMap[string]): AudienceMetric {
+function cachedMetric(account: Account, prior: AudienceAccountHistory): AudienceMetric {
   const platformName = account.platform[0].toUpperCase() + account.platform.slice(1);
   const cacheLabel = account.platform === "linkedin" ? "daily cache" : "cached";
-  const growth = audienceGrowthFromSnapshot(prior);
+  const latest = prior.latest;
+  const growth = audienceGrowthFromHistory(prior);
   return {
     id: account.id,
     platform: account.platform,
     label: account.label,
-    handle: prior.handle || usernameFor(account),
-    total: prior.total,
+    handle: latest.handle || usernameFor(account),
+    total: latest.total,
     ...growth,
-    primaryLabel: prior.primaryLabel,
-    secondaryLabel: prior.secondaryLabel,
-    secondaryValue: prior.secondaryValue,
-    checkedAt: prior.checkedAt,
-    source: `${prior.source || `${platformName} public profile`} (${cacheLabel})`,
+    primaryLabel: latest.primaryLabel,
+    secondaryLabel: latest.secondaryLabel,
+    secondaryValue: latest.secondaryValue,
+    checkedAt: latest.checkedAt,
+    source: `${latest.source || `${platformName} public profile`} (${cacheLabel})`,
   };
 }
 
 async function collectAudienceNow(settings: StoredSettings, forceRefresh: boolean): Promise<AudienceMetric[]> {
   const previous = await readSnapshots();
-  const next = { ...previous };
+  const next: AudienceSnapshotHistory = {
+    version: AUDIENCE_SNAPSHOT_VERSION,
+    accounts: { ...previous.accounts },
+  };
   const checkedAt = new Date().toISOString();
   const results = await Promise.all(settings.audience.accounts.map(async (account): Promise<AudienceMetric> => {
     const fingerprint = audienceAccountFingerprint(account);
-    const saved = previous[account.id];
+    const saved = previous.accounts[account.id];
     const prior = saved?.fingerprint === fingerprint ? saved : undefined;
-    if (saved && !prior) delete next[account.id];
-    if (!forceRefresh && prior && Date.parse(prior.checkedAt) >= Date.parse(checkedAt) - audienceCacheWindowMs(account.platform)) {
+    if (saved && !prior) delete next.accounts[account.id];
+    if (!forceRefresh && prior && Date.parse(prior.latest.checkedAt) >= Date.parse(checkedAt) - audienceCacheWindowMs(account.platform)) {
       return cachedMetric(account, prior);
     }
     try {
       const current = await collectAccount(account);
-      const snapshot = nextAudienceSnapshot({
+      const history = nextAudienceHistory({
         total: current.total,
         checkedAt,
-        fingerprint,
         handle: current.handle,
         secondaryLabel: current.secondaryLabel,
         secondaryValue: current.secondaryValue,
         source: current.source,
         primaryLabel: current.primaryLabel,
-      }, prior);
-      next[account.id] = snapshot;
-      return { id: account.id, platform: account.platform, label: account.label, handle: current.handle, total: current.total, ...audienceGrowthFromSnapshot(snapshot), primaryLabel: current.primaryLabel, secondaryLabel: current.secondaryLabel, secondaryValue: current.secondaryValue, checkedAt, source: current.source };
+      }, fingerprint, prior);
+      next.accounts[account.id] = history;
+      return { id: account.id, platform: account.platform, label: account.label, handle: current.handle, total: current.total, ...audienceGrowthFromHistory(history), primaryLabel: current.primaryLabel, secondaryLabel: current.secondaryLabel, secondaryValue: current.secondaryValue, checkedAt, source: current.source };
     } catch (error) {
-      return { id: account.id, platform: account.platform, label: account.label, handle: account.username || account.profileUrl || account.accountId, total: prior?.total ?? null, ...(prior ? audienceGrowthFromSnapshot(prior) : { change: null }), primaryLabel: prior?.primaryLabel, secondaryLabel: prior?.secondaryLabel, secondaryValue: prior?.secondaryValue, checkedAt, error: error instanceof Error ? error.message : "Unknown provider error", stale: Boolean(prior), lastSuccessfulAt: prior?.checkedAt };
+      const latest = prior?.latest;
+      return { id: account.id, platform: account.platform, label: account.label, handle: account.username || account.profileUrl || account.accountId, total: latest?.total ?? null, ...(prior ? audienceGrowthFromHistory(prior) : { change: null }), primaryLabel: latest?.primaryLabel, secondaryLabel: latest?.secondaryLabel, secondaryValue: latest?.secondaryValue, checkedAt, error: error instanceof Error ? error.message : "Unknown provider error", stale: Boolean(prior), lastSuccessfulAt: latest?.checkedAt };
     }
   }));
   await writeSnapshots(next);

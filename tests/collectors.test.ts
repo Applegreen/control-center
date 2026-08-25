@@ -109,6 +109,33 @@ test("canonical URLs preserve one archived record when a title and external ID c
   assert.equal(saved.archived[0].title, "Corrected title");
 });
 
+test("undated verified mentions preserve first discovery across later research sweeps", () => {
+  const database = initializeContentStore(new DatabaseSync(":memory:"));
+  const mention: LiveStory = {
+    ...story("A verified public mention"),
+    id: "verified-mention",
+    url: "https://publisher.example/mention",
+    publishedAt: "",
+    discoveredAt: "2026-08-18T12:00:00Z",
+    kind: "mention",
+  };
+  upsertContentItems(database, "mentions", [mention], "2026-08-18T12:00:00Z");
+  upsertContentItems(database, "mentions", [{
+    ...mention,
+    discoveredAt: "2026-08-25T12:00:00Z",
+  }], "2026-08-25T12:00:00Z");
+  const current = listContentItems<LiveStory>(database, "mentions", {
+    freshSince: "2026-08-18T12:00:00Z",
+    freshUntil: "2026-08-25T12:10:00Z",
+  });
+  assert.equal(current.active[0].discoveredAt, "2026-08-18T12:00:00Z");
+  const expired = listContentItems<LiveStory>(database, "mentions", {
+    freshSince: "2026-08-18T12:00:01Z",
+  });
+  assert.equal(expired.active.length, 0);
+  assert.equal(expired.archived[0].workflow?.archiveReason, "expired");
+});
+
 test("manual archives restore only while an Industry item is still fresh", () => {
   const database = initializeContentStore(new DatabaseSync(":memory:"));
   const fresh = { ...story("Fresh"), id: "fresh", url: "https://example.com/fresh", publishedAt: "2026-08-24T10:00:00Z" };

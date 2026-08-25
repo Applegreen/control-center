@@ -8,6 +8,7 @@ type ContentItem = {
   title?: string;
   source?: string;
   publishedAt?: string;
+  discoveredAt?: string;
   receivedAt?: string;
   url?: string;
   gmailUrl?: string;
@@ -110,6 +111,15 @@ export function upsertContentItems<T extends ContentItem>(database: DatabaseSync
       }
       const externalId = existing?.external_id || item.id;
       let payload: T = externalId === item.id ? item : { ...item, id: externalId };
+      if (category === "mentions" && existing && item.discoveredAt) {
+        try {
+          const stored = JSON.parse(existing.payload_json) as T;
+          if (stored.discoveredAt)
+            payload = { ...payload, discoveredAt: stored.discoveredAt };
+        } catch {
+          // The first-seen database column still bounds an unreadable legacy payload.
+        }
+      }
       if (category === "mentions" && existing && item.url && isMentionProviderWrapper(item.url)) {
         try {
           const stored = JSON.parse(existing.payload_json) as T;

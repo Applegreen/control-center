@@ -13,10 +13,17 @@ import {
 import os from "node:os";
 import path from "node:path";
 import type {
+  AiKeyProvider,
   AudienceAccountInput,
   PublicSettings,
   SettingsUpdate,
 } from "@/lib/types";
+import {
+  assertMentionIdentityLimit,
+  cleanBoundedMentionValues,
+  MAX_MENTION_CONTEXT_VALUES,
+  MAX_MENTION_IDENTITIES,
+} from "@/lib/mention-work";
 import { isValidPublicProfileUrl } from "@/lib/public-metrics";
 
 type StoredAudienceAccount = Omit<
@@ -40,13 +47,31 @@ export type StoredSettings = {
     gmailQuery: string;
   };
   audience: { accounts: StoredAudienceAccount[] };
+  ai: {
+    provider: PublicSettings["ai"]["provider"];
+    model: string;
+    apiKeys: Record<AiKeyProvider, string>;
+  };
   dailyBrief: PublicSettings["dailyBrief"];
 };
 
 const defaults: StoredSettings = {
   general: { workspaceName: "Control Center" },
-  industry: { sources: [], keywords: [] },
-  mentions: { terms: [], websites: [], identityAnchors: [], strictMode: true },
+  industry: {
+    sources: [],
+    keywords: [],
+    description: "",
+    excludedTerms: [],
+    dailyLimit: 30,
+  },
+  mentions: {
+    terms: [],
+    websites: [],
+    identityAnchors: [],
+    negativeTerms: [],
+    strictMode: true,
+    excludeOwnedSites: true,
+  },
   newsletters: {
     googleClientId: "",
     googleClientSecret: "",
@@ -57,6 +82,11 @@ const defaults: StoredSettings = {
     gmailQuery: "newer_than:30d (category:updates OR category:promotions)",
   },
   audience: { accounts: [] },
+  ai: {
+    provider: "none",
+    model: "",
+    apiKeys: { openai: "", anthropic: "", gemini: "" },
+  },
   dailyBrief: { sourceLabels: [], lookbackDays: 7 },
 };
 
@@ -134,6 +164,11 @@ export async function readSettings(): Promise<StoredSettings> {
           profileUrl: account.profileUrl ?? "",
         })),
       },
+      ai: {
+        ...defaults.ai,
+        ...parsed.ai,
+        apiKeys: { ...defaults.ai.apiKeys, ...parsed.ai?.apiKeys },
+      },
       dailyBrief: { ...defaults.dailyBrief, ...parsed.dailyBrief },
     };
   } catch (error) {
@@ -163,6 +198,12 @@ export async function writeSettings(settings: StoredSettings) {
 }
 
 export function toPublicSettings(settings: StoredSettings): PublicSettings {
+  const aiKeySource = (provider: AiKeyProvider) =>
+    settings.ai.apiKeys[provider]?.trim()
+      ? "settings" as const
+      : environmentAiApiKey(provider)
+        ? "environment" as const
+        : "none" as const;
   return {
     general: settings.general,
     industry: settings.industry,
@@ -190,8 +231,39 @@ export function toPublicSettings(settings: StoredSettings): PublicSettings {
         }),
       ),
     },
+    ai: {
+      provider: settings.ai.provider,
+      model: settings.ai.model,
+      keySet: {
+        openai: Boolean(configuredAiApiKey(settings, "openai")),
+        anthropic: Boolean(configuredAiApiKey(settings, "anthropic")),
+        gemini: Boolean(configuredAiApiKey(settings, "gemini")),
+      },
+      keySource: {
+        openai: aiKeySource("openai"),
+        anthropic: aiKeySource("anthropic"),
+        gemini: aiKeySource("gemini"),
+      },
+    },
     dailyBrief: settings.dailyBrief,
   };
+}
+
+export function configuredAiApiKey(
+  settings: StoredSettings,
+  provider: AiKeyProvider,
+) {
+  return settings.ai.apiKeys[provider]?.trim() || environmentAiApiKey(provider);
+}
+
+function environmentAiApiKey(provider: AiKeyProvider) {
+  const environmentKey =
+    provider === "openai"
+      ? process.env.OPENAI_API_KEY
+      : provider === "anthropic"
+        ? process.env.ANTHROPIC_API_KEY
+        : process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  return environmentKey?.trim() || "";
 }
 
 function cleanList(values: string[]) {
@@ -236,6 +308,15 @@ export async function updateSettings(update: SettingsUpdate) {
     const currentAccounts = new Map(
       current.audience.accounts.map((account) => [account.id, account]),
     );
+    const nextAiKeys = { ...current.ai.apiKeys };
+    for (const provider of update.ai?.clearKeys ?? []) {
+      if (["openai", "anthropic", "gemini"].includes(provider))
+        nextAiKeys[provider] = "";
+    }
+    for (const provider of ["openai", "anthropic", "gemini"] as const) {
+      const incoming = update.ai?.apiKeys?.[provider]?.trim();
+      if (incoming) nextAiKeys[provider] = incoming;
+    }
     const cleanedAccounts = update.audience.accounts.map((account) => {
       const profileUrl = account.profileUrl?.trim() || "";
       if (
@@ -286,6 +367,27 @@ export async function updateSettings(update: SettingsUpdate) {
       }
       accountKeys.add(key);
     }
+    const mentionTerms = cleanBoundedMentionValues(
+      update.mentions.terms,
+      "Mention names, brands, and handles",
+      MAX_MENTION_IDENTITIES,
+    );
+    const mentionWebsites = cleanBoundedMentionValues(
+      update.mentions.websites,
+      "Mention websites",
+      MAX_MENTION_IDENTITIES,
+    );
+    assertMentionIdentityLimit(mentionTerms, mentionWebsites);
+    const mentionIdentityAnchors = cleanBoundedMentionValues(
+      update.mentions.identityAnchors ?? [],
+      "Mention identity anchors",
+      MAX_MENTION_CONTEXT_VALUES,
+    );
+    const mentionNegativeTerms = cleanBoundedMentionValues(
+      update.mentions.negativeTerms ?? [],
+      "Mention excluded contexts",
+      MAX_MENTION_CONTEXT_VALUES,
+    );
     const next: StoredSettings = {
       general: {
         workspaceName:
@@ -294,12 +396,23 @@ export async function updateSettings(update: SettingsUpdate) {
       industry: {
         sources: cleanIndustrySources(update.industry.sources),
         keywords: cleanList(update.industry.keywords),
+        description: (update.industry.description ?? "").trim().slice(0, 1_000),
+        excludedTerms: cleanList(update.industry.excludedTerms ?? []),
+        dailyLimit: Math.min(
+          50,
+          Math.max(
+            10,
+            Math.round(Number(update.industry.dailyLimit) || defaults.industry.dailyLimit),
+          ),
+        ),
       },
       mentions: {
-        terms: cleanList(update.mentions.terms),
-        websites: cleanList(update.mentions.websites),
-        identityAnchors: cleanList(update.mentions.identityAnchors ?? []),
+        terms: mentionTerms,
+        websites: mentionWebsites,
+        identityAnchors: mentionIdentityAnchors,
+        negativeTerms: mentionNegativeTerms,
         strictMode: update.mentions.strictMode !== false,
+        excludeOwnedSites: update.mentions.excludeOwnedSites !== false,
       },
       newsletters: {
         ...current.newsletters,
@@ -313,6 +426,17 @@ export async function updateSettings(update: SettingsUpdate) {
       },
       audience: {
         accounts: cleanedAccounts,
+      },
+      ai: {
+        provider: update.ai === undefined
+          ? current.ai.provider
+          : ["openai", "anthropic", "gemini"].includes(update.ai.provider)
+            ? update.ai.provider
+            : "none",
+        model: update.ai === undefined
+          ? current.ai.model
+          : update.ai.model.trim().slice(0, 120),
+        apiKeys: nextAiKeys,
       },
       dailyBrief: {
         sourceLabels: cleanList(update.dailyBrief?.sourceLabels ?? []),

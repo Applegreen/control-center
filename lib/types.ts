@@ -4,6 +4,9 @@ export type IndustrySource = {
   url: string;
 };
 
+export type AiProvider = "none" | "openai" | "anthropic" | "gemini";
+export type AiKeyProvider = Exclude<AiProvider, "none">;
+
 export type AudiencePlatform =
   | "youtube"
   | "x"
@@ -32,12 +35,17 @@ export type PublicSettings = {
   industry: {
     sources: IndustrySource[];
     keywords: string[];
+    description: string;
+    excludedTerms: string[];
+    dailyLimit: number;
   };
   mentions: {
     terms: string[];
     websites: string[];
     identityAnchors: string[];
+    negativeTerms: string[];
     strictMode: boolean;
+    excludeOwnedSites: boolean;
   };
   newsletters: {
     googleClientId: string;
@@ -49,6 +57,12 @@ export type PublicSettings = {
   audience: {
     accounts: AudienceAccountInput[];
   };
+  ai: {
+    provider: AiProvider;
+    model: string;
+    keySet: Record<AiKeyProvider, boolean>;
+    keySource: Record<AiKeyProvider, "none" | "settings" | "environment">;
+  };
   dailyBrief: {
     sourceLabels: string[];
     lookbackDays: number;
@@ -57,13 +71,23 @@ export type PublicSettings = {
 
 export type SettingsUpdate = Omit<
   PublicSettings,
-  "newsletters" | "audience"
+  "newsletters" | "audience" | "industry" | "mentions" | "ai"
 > & {
+  industry: Omit<PublicSettings["industry"], "description" | "excludedTerms" | "dailyLimit"> &
+    Partial<Pick<PublicSettings["industry"], "description" | "excludedTerms" | "dailyLimit">>;
+  mentions: Omit<PublicSettings["mentions"], "negativeTerms" | "excludeOwnedSites"> &
+    Partial<Pick<PublicSettings["mentions"], "negativeTerms" | "excludeOwnedSites">>;
   newsletters: PublicSettings["newsletters"] & {
     googleClientSecret?: string;
   };
   audience: {
     accounts: AudienceAccountInput[];
+  };
+  ai?: {
+    provider: AiProvider;
+    model: string;
+    apiKeys?: Partial<Record<AiKeyProvider, string>>;
+    clearKeys?: AiKeyProvider[];
   };
 };
 
@@ -86,6 +110,8 @@ export type LiveStory = {
   kind?: "feed" | "sitemap" | "topic" | "mention";
   confidence?: "high" | "medium";
   matchReasons?: string[];
+  importanceScore?: number;
+  importanceReason?: string;
   collectionScope?: string;
   workflow?: ContentWorkflow;
 };
@@ -110,10 +136,13 @@ export type LiveFeedResponse = {
   windowDays?: number;
   providerStatuses?: Array<{
     provider: string;
-    state: "live" | "degraded";
+    state: "live" | "degraded" | "disabled";
     message: string;
   }>;
   freshnessHours?: number;
+  discoveredCount?: number;
+  surfacedLimit?: number;
+  curationMode?: "local" | AiKeyProvider;
   archivedItems?: LiveStory[];
   archiveCount?: number;
   historyItems?: LiveStory[];

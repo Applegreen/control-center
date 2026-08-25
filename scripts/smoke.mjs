@@ -37,6 +37,10 @@ const server = spawn(
       ...process.env,
       CONTROL_CENTER_DATA_DIR: dataDirectory,
       PORT: String(port),
+      OPENAI_API_KEY: "",
+      ANTHROPIC_API_KEY: "",
+      GEMINI_API_KEY: "",
+      GOOGLE_API_KEY: "",
     },
     detached: process.platform !== "win32",
     stdio: ["ignore", "pipe", "pipe", "ipc"],
@@ -185,16 +189,77 @@ try {
     settings.general?.workspaceName !== "Control Center" ||
     settings.industry?.sources?.length !== 0 ||
     settings.industry?.keywords?.length !== 0 ||
+    settings.industry?.description !== "" ||
+    settings.industry?.excludedTerms?.length !== 0 ||
+    settings.industry?.dailyLimit !== 30 ||
     settings.mentions?.terms?.length !== 0 ||
     settings.mentions?.websites?.length !== 0 ||
     settings.mentions?.identityAnchors?.length !== 0 ||
+    settings.mentions?.negativeTerms?.length !== 0 ||
+    settings.mentions?.excludeOwnedSites !== true ||
     settings.audience?.accounts?.length !== 0 ||
-    settings.newsletters?.connected !== false
+    settings.newsletters?.connected !== false ||
+    settings.ai?.provider !== "none" ||
+    "apiKeys" in (settings.ai || {})
   ) {
     throw new Error(
       "A fresh install exposed personalized or preconfigured settings.",
     );
   }
+  const secretProbe = "smoke-key-must-never-return";
+  const saveSecret = await fetch(`http://127.0.0.1:${port}/api/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...settings,
+      ai: {
+        provider: "openai",
+        model: "gpt-5-mini-smoke-probe",
+        apiKeys: { openai: secretProbe },
+      },
+    }),
+  });
+  if (!saveSecret.ok) throw new Error("The Settings API could not save an optional AI key.");
+  const secretReadbackText = await (await fetch(`http://127.0.0.1:${port}/api/settings`)).text();
+  const secretReadback = JSON.parse(secretReadbackText);
+  if (
+    secretReadbackText.includes(secretProbe) ||
+    secretReadback.ai?.keySet?.openai !== true ||
+    secretReadback.ai?.provider !== "openai" ||
+    secretReadback.ai?.model !== "gpt-5-mini-smoke-probe"
+  ) throw new Error("The Settings API did not keep the optional AI key server-side.");
+  const settingsWithoutAi = structuredClone(secretReadback);
+  delete settingsWithoutAi.ai;
+  const preserveSecret = await fetch(`http://127.0.0.1:${port}/api/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settingsWithoutAi),
+  });
+  if (!preserveSecret.ok)
+    throw new Error("The Settings API rejected a backward-compatible save without AI fields.");
+  const preservedReadbackText = await (await fetch(`http://127.0.0.1:${port}/api/settings`)).text();
+  const preservedReadback = JSON.parse(preservedReadbackText);
+  if (
+    preservedReadbackText.includes(secretProbe) ||
+    preservedReadback.ai?.keySet?.openai !== true ||
+    preservedReadback.ai?.provider !== "openai" ||
+    preservedReadback.ai?.model !== "gpt-5-mini-smoke-probe"
+  ) throw new Error("A Settings save without AI fields changed the saved AI configuration.");
+  const clearSecret = await fetch(`http://127.0.0.1:${port}/api/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...secretReadback,
+      ai: { provider: "none", model: "", clearKeys: ["openai"] },
+    }),
+  });
+  if (!clearSecret.ok) throw new Error("The Settings API could not clear an optional AI key.");
+  const clearedReadbackText = await (await fetch(`http://127.0.0.1:${port}/api/settings`)).text();
+  const clearedReadback = JSON.parse(clearedReadbackText);
+  if (
+    clearedReadbackText.includes(secretProbe) ||
+    clearedReadback.ai?.keySet?.openai !== false
+  ) throw new Error("The Settings API did not clear the optional AI key.");
   const workspace = await getJson("/api/workspace");
   if (
     workspace.initialized !== false ||

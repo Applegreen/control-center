@@ -1,7 +1,7 @@
-import type { LiveStory } from "@/lib/types";
+import type { IndustrySourceStatus, LiveStory } from "@/lib/types";
 import { filterFreshStories, INDUSTRY_FRESHNESS_HOURS } from "@/lib/freshness";
 
-export type IndustrySortOrder = "newest" | "oldest" | "watched";
+export type IndustrySortOrder = "important" | "newest" | "oldest" | "watched";
 
 function storyTimestamp(item: LiveStory) {
   const timestamp = Date.parse(item.publishedAt);
@@ -11,6 +11,10 @@ function storyTimestamp(item: LiveStory) {
 export function sortIndustryItems(items: LiveStory[], order: IndustrySortOrder) {
   const sorted = [...items];
   sorted.sort((left, right) => {
+    if (order === "important") {
+      const importance = (right.importanceScore || 0) - (left.importanceScore || 0);
+      if (importance) return importance;
+    }
     if (order === "watched") {
       const sourcePriority =
         Number(left.kind === "topic") - Number(right.kind === "topic");
@@ -51,4 +55,21 @@ export function freshIndustryDiscoveries(
     INDUSTRY_FRESHNESS_HOURS,
     now,
   );
+}
+
+export function topicDiscoveryStatus(options: {
+  endpoint: string;
+  itemCount: number;
+  keywordCount: number;
+  successfulQueries: number;
+}): IndustrySourceStatus | null {
+  if (options.successfulQueries <= 0) return null;
+  return {
+    sourceId: "topic-discovery",
+    source: "Topic discovery",
+    mode: "topics",
+    endpoint: options.endpoint,
+    state: "live",
+    message: `${options.itemCount} current stories across ${options.keywordCount} configured topic${options.keywordCount === 1 ? "" : "s"}`,
+  };
 }

@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { audienceGrowthFromSnapshot, combineAudienceChanges, nextAudienceSnapshot, parseAudienceSnapshots } from "../lib/audience-growth";
+import {
+  AUDIENCE_COMPARISON_WINDOW_LABEL,
+  AUDIENCE_HISTORY_RETENTION_MS,
+  audienceComparisonLabel,
+  audienceGrowthFromHistory,
+  combineAudienceChanges,
+  nextAudienceHistory,
+  parseAudienceSnapshots,
+} from "../lib/audience-growth";
 import {
   audienceAccountFingerprint,
   audienceCacheWindowMs,
@@ -26,34 +34,59 @@ test("automatic public checks use a short cache while LinkedIn uses a daily cach
   assert.equal(audienceCacheWindowMs("linkedin"), 24 * 60 * 60 * 1000);
 });
 
-test("audience growth persists follower deltas independently from content counts", () => {
-  const first = nextAudienceSnapshot({
+test("audience growth uses a 24-hour baseline without rotating on hourly or manual refreshes", () => {
+  const fingerprint = "youtube:northstar";
+  let history = nextAudienceHistory({
     total: 100,
     checkedAt: "2026-08-24T12:00:00Z",
-    fingerprint: "youtube:northstar",
     primaryLabel: "subscribers",
     secondaryLabel: "videos",
     secondaryValue: 50,
-  });
-  const second = nextAudienceSnapshot({
-    total: 112,
-    checkedAt: "2026-08-25T12:00:00Z",
-    fingerprint: "youtube:northstar",
+  }, fingerprint);
+  history = nextAudienceHistory({
+    total: 110,
+    checkedAt: "2026-08-25T00:05:00Z",
     primaryLabel: "subscribers",
     secondaryLabel: "videos",
     secondaryValue: 51,
-  }, first);
-
-  assert.deepEqual(audienceGrowthFromSnapshot(first), {
+  }, fingerprint, history);
+  history = nextAudienceHistory({
+    total: 111,
+    checkedAt: "2026-08-25T11:00:00Z",
+    primaryLabel: "subscribers",
+    secondaryLabel: "videos",
+    secondaryValue: 51,
+  }, fingerprint, history);
+  assert.equal(history.samples.length, 2, "one sample is retained per 12-hour bucket");
+  assert.deepEqual(audienceGrowthFromHistory(history), {
     change: null,
     changeComparedAt: undefined,
   });
-  assert.deepEqual(audienceGrowthFromSnapshot(second), {
+
+  history = nextAudienceHistory({
+    total: 112,
+    checkedAt: "2026-08-25T12:01:00Z",
+    primaryLabel: "subscribers",
+    secondaryLabel: "videos",
+    secondaryValue: 52,
+  }, fingerprint, history);
+  assert.deepEqual(audienceGrowthFromHistory(history), {
     change: 12,
     changeComparedAt: "2026-08-24T12:00:00Z",
   });
-  assert.equal(second.secondaryValue, 51);
-  assert.equal(audienceGrowthFromSnapshot(second).change, 12);
+  assert.equal(history.latest.secondaryValue, 52);
+
+  history = nextAudienceHistory({
+    total: 113,
+    checkedAt: "2026-08-25T13:00:00Z",
+    primaryLabel: "subscribers",
+  }, fingerprint, history);
+  assert.equal(history.samples.length, 3, "manual refresh does not add a same-bucket sample");
+  assert.deepEqual(audienceGrowthFromHistory(history), {
+    change: 13,
+    changeComparedAt: "2026-08-24T12:00:00Z",
+  });
+
   assert.deepEqual(combineAudienceChanges([{ change: null }, { change: null }]), {
     change: 0,
     comparisonCount: 0,
@@ -62,35 +95,162 @@ test("audience growth persists follower deltas independently from content counts
     change: 10,
     comparisonCount: 2,
   });
+});
 
-  const changedMetric = nextAudienceSnapshot({
-    total: 80,
-    checkedAt: "2026-08-26T12:00:00Z",
-    fingerprint: "facebook:northstar",
-    primaryLabel: "page likes",
-  }, {
+test("audience comparison copy reports the actual 24–36 hour baseline", () => {
+  assert.equal(AUDIENCE_COMPARISON_WINDOW_LABEL, "24–36h change");
+  assert.equal(
+    audienceComparisonLabel(
+      "2026-08-25T12:00:00Z",
+      "2026-08-24T12:00:00Z",
+    ),
+    "vs 24h baseline",
+  );
+  assert.equal(
+    audienceComparisonLabel(
+      "2026-08-26T00:00:00Z",
+      "2026-08-24T12:00:00Z",
+    ),
+    "vs 36h baseline",
+  );
+  assert.equal(
+    audienceComparisonLabel("2026-08-26T00:00:00Z"),
+    "Waiting for 24–36h baseline",
+  );
+});
+
+test("audience history resets when account identity or primary metric changes", () => {
+  const subscribers = nextAudienceHistory({
+    total: 100,
+    checkedAt: "2026-08-24T12:00:00Z",
+    primaryLabel: "subscribers",
+  }, "youtube:northstar");
+  const daily = nextAudienceHistory({
     total: 112,
     checkedAt: "2026-08-25T12:00:00Z",
-    fingerprint: "facebook:northstar",
-    primaryLabel: "followers",
-  });
-  assert.deepEqual(audienceGrowthFromSnapshot(changedMetric), {
+    primaryLabel: "subscribers",
+  }, "youtube:northstar", subscribers);
+  assert.equal(audienceGrowthFromHistory(daily).change, 12);
+
+  const changedMetric = nextAudienceHistory({
+    total: 80,
+    checkedAt: "2026-08-26T12:00:00Z",
+    primaryLabel: "page likes",
+  }, "youtube:northstar", daily);
+  assert.equal(changedMetric.samples.length, 1);
+  assert.deepEqual(audienceGrowthFromHistory(changedMetric), {
     change: null,
     changeComparedAt: undefined,
   });
+
+  const changedIdentity = nextAudienceHistory({
+    total: 90,
+    checkedAt: "2026-08-27T12:00:00Z",
+    primaryLabel: "page likes",
+  }, "facebook:another-page", changedMetric);
+  assert.equal(changedIdentity.samples.length, 1);
+  assert.equal(audienceGrowthFromHistory(changedIdentity).change, null);
 });
 
-test("malformed audience snapshot history fails closed", () => {
+test("audience history prunes samples beyond 31 days", () => {
+  const fingerprint = "x:northstar";
+  const start = Date.parse("2026-06-01T00:00:00Z");
+  let history = nextAudienceHistory({
+    total: 100,
+    checkedAt: new Date(start).toISOString(),
+    primaryLabel: "followers",
+  }, fingerprint);
+  for (let index = 1; index <= 80; index += 1) {
+    history = nextAudienceHistory({
+      total: 100 + index,
+      checkedAt: new Date(start + index * 12 * 60 * 60 * 1000).toISOString(),
+      primaryLabel: "followers",
+    }, fingerprint, history);
+  }
+  const latestTime = Date.parse(history.latest.checkedAt);
+  assert.ok(history.samples.length <= 64);
+  assert.ok(
+    history.samples.every(
+      (sample) => Date.parse(sample.checkedAt) >= latestTime - AUDIENCE_HISTORY_RETENTION_MS,
+    ),
+  );
+});
+
+test("legacy audience snapshots migrate to versioned history without inventing a short baseline", () => {
+  const migrated = parseAudienceSnapshots({
+    account: {
+      total: 112,
+      checkedAt: "2026-08-25T12:00:00Z",
+      fingerprint: "x:northstar",
+      primaryLabel: "followers",
+      previousTotal: 100,
+      previousCheckedAt: "2026-08-24T12:00:00Z",
+    },
+  });
+  assert.equal(migrated.version, 2);
+  assert.equal(migrated.accounts.account.samples.length, 2);
+  assert.deepEqual(audienceGrowthFromHistory(migrated.accounts.account), {
+    change: 12,
+    changeComparedAt: "2026-08-24T12:00:00Z",
+  });
+  assert.deepEqual(parseAudienceSnapshots(migrated), migrated);
+
+  const hourly = parseAudienceSnapshots({
+    account: {
+      total: 112,
+      checkedAt: "2026-08-25T12:00:00Z",
+      fingerprint: "x:northstar",
+      primaryLabel: "followers",
+      previousTotal: 111,
+      previousCheckedAt: "2026-08-25T11:00:00Z",
+    },
+  });
+  assert.equal(audienceGrowthFromHistory(hourly.accounts.account).change, null);
+});
+
+test("malformed legacy and v2 audience history fails closed", () => {
   assert.throws(() => parseAudienceSnapshots([]), /must be an object/i);
   assert.throws(
     () => parseAudienceSnapshots({ account: { total: "100", checkedAt: "today" } }),
     /entries are invalid/i,
   );
+  assert.throws(
+    () => parseAudienceSnapshots({
+      account: {
+        total: 100,
+        checkedAt: "2026-08-25T12:00:00Z",
+        previousTotal: 99,
+      },
+    }),
+    /entries are invalid/i,
+  );
+  assert.throws(
+    () => parseAudienceSnapshots({
+      version: 2,
+      accounts: {
+        account: {
+          fingerprint: "x:northstar",
+          latest: { total: 100, checkedAt: "2026-08-25T12:00:00Z" },
+          samples: [],
+        },
+      },
+    }),
+    /invalid account/i,
+  );
   assert.deepEqual(
     parseAudienceSnapshots({
       account: { total: 100, checkedAt: "2026-08-25T12:00:00Z" },
     }),
-    { account: { total: 100, checkedAt: "2026-08-25T12:00:00Z" } },
+    {
+      version: 2,
+      accounts: {
+        account: {
+          fingerprint: "",
+          latest: { total: 100, checkedAt: "2026-08-25T12:00:00Z" },
+          samples: [{ total: 100, checkedAt: "2026-08-25T12:00:00Z" }],
+        },
+      },
+    },
   );
 });
 

@@ -101,6 +101,11 @@ export function dataDirectory() {
   return existsSync(legacy) ? legacy : defaultDataDirectory();
 }
 
+export function legacyBrowserImportAllowed() {
+  const legacy = path.join(process.cwd(), ".control-center");
+  return existsSync(legacy) && path.resolve(dataDirectory()) === path.resolve(legacy);
+}
+
 export function settingsPath() {
   return path.join(dataDirectory(), "settings.json");
 }

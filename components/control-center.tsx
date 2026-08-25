@@ -219,6 +219,32 @@ function readLegacyList<T>(key: string): T[] {
   }
 }
 
+const WORKSPACE_RECOVERY_KEY = "control-center-v3-workspace-recovery";
+
+type WorkspaceRecovery = {
+  id: string;
+  savedAt: string;
+  workspace: WorkspaceState;
+};
+
+function readWorkspaceRecovery(): WorkspaceRecovery | null {
+  try {
+    const value = window.localStorage.getItem(WORKSPACE_RECOVERY_KEY);
+    if (!value) return null;
+    const parsed = JSON.parse(value) as Partial<WorkspaceRecovery>;
+    if (
+      typeof parsed.id !== "string" ||
+      typeof parsed.savedAt !== "string" ||
+      !parsed.workspace ||
+      !Array.isArray(parsed.workspace.reminders) ||
+      !Array.isArray(parsed.workspace.tasks)
+    ) return null;
+    return parsed as WorkspaceRecovery;
+  } catch {
+    return null;
+  }
+}
+
 function SetupEmpty({
   icon,
   title,
@@ -3002,10 +3028,6 @@ export function ControlCenter() {
     });
     const load = async () => {
       try {
-        const legacy: WorkspaceState = {
-          reminders: readLegacyList<Reminder>("control-center-v2-reminders"),
-          tasks: readLegacyList<Task>("control-center-v2-tasks"),
-        };
         const [settingsResponse, workspaceResponse] = await Promise.all([
           fetch("/api/settings", { cache: "no-store" }),
           fetch("/api/workspace", { cache: "no-store" }),
@@ -3022,10 +3044,19 @@ export function ControlCenter() {
           settingsResponse.json() as Promise<PublicSettings>,
           workspaceResponse.json() as Promise<WorkspaceStateResponse>,
         ]);
-        const nextWorkspace = saved.initialized
+        const recovery = readWorkspaceRecovery();
+        const legacy: WorkspaceState = saved.legacyBrowserImportAllowed
+          ? {
+              reminders: readLegacyList<Reminder>("control-center-v2-reminders"),
+              tasks: readLegacyList<Task>("control-center-v2-tasks"),
+            }
+          : { reminders: [], tasks: [] };
+        let nextWorkspace: WorkspaceState = saved.initialized
           ? { reminders: saved.reminders, tasks: saved.tasks }
           : legacy;
-        if (!saved.initialized) {
+        const canRecover = saved.initialized || saved.legacyBrowserImportAllowed;
+        if (recovery && canRecover) nextWorkspace = recovery.workspace;
+        if (!saved.initialized || (recovery && canRecover)) {
           const importResponse = await fetch("/api/workspace", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -3035,6 +3066,7 @@ export function ControlCenter() {
             throw new Error(
               "The first-run workspace could not be initialized. No local data was replaced.",
             );
+          nextWorkspace = (await importResponse.json()) as WorkspaceState;
         }
         if (cancelled) return;
         setSettings(loadedSettings);
@@ -3059,43 +3091,55 @@ export function ControlCenter() {
   }, [bootstrapAttempt]);
   useEffect(() => {
     if (!workspaceReady) return;
-    const timer = window.setTimeout(() => {
-      const workspace = { reminders, tasks } satisfies WorkspaceState;
+    const workspace = { reminders, tasks } satisfies WorkspaceState;
+    const recovery: WorkspaceRecovery = {
+      id: crypto.randomUUID(),
+      savedAt: new Date().toISOString(),
+      workspace,
+    };
+    try {
+      window.localStorage.setItem(
+        "control-center-v2-reminders",
+        JSON.stringify(reminders),
+      );
+      window.localStorage.setItem(
+        "control-center-v2-tasks",
+        JSON.stringify(tasks),
+      );
+      window.localStorage.setItem(
+        WORKSPACE_RECOVERY_KEY,
+        JSON.stringify(recovery),
+      );
+    } catch {
+      // The immediate SQLite write below remains canonical when browser storage is unavailable.
+    }
+    const save = async () => {
+      const response = await fetch("/api/workspace", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(workspace),
+      });
+      if (!response.ok)
+        throw new Error(
+          "Tasks and reminders could not be saved to SQLite. Keep this page open and retry.",
+        );
       try {
-        window.localStorage.setItem(
-          "control-center-v2-reminders",
-          JSON.stringify(reminders),
-        );
-        window.localStorage.setItem(
-          "control-center-v2-tasks",
-          JSON.stringify(tasks),
-        );
+        if (readWorkspaceRecovery()?.id === recovery.id)
+          window.localStorage.removeItem(WORKSPACE_RECOVERY_KEY);
       } catch {
-        // SQLite remains the canonical local copy when browser storage is unavailable.
+        // A saved SQLite workspace does not depend on clearing the recovery copy.
       }
-      const save = async () => {
-        const response = await fetch("/api/workspace", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(workspace),
-        });
-        if (!response.ok)
-          throw new Error(
-            "Tasks and reminders could not be saved to SQLite. Keep this page open and retry.",
-          );
-        setWorkspaceSaveError("");
-      };
-      workspaceSaveQueue.current = workspaceSaveQueue.current
-        .then(save, save)
-        .catch((error) => {
-          setWorkspaceSaveError(
-            error instanceof Error
-              ? error.message
-              : "Tasks and reminders could not be saved.",
-          );
-        });
-    }, 120);
-    return () => window.clearTimeout(timer);
+      setWorkspaceSaveError("");
+    };
+    workspaceSaveQueue.current = workspaceSaveQueue.current
+      .then(save, save)
+      .catch((error) => {
+        setWorkspaceSaveError(
+          error instanceof Error
+            ? error.message
+            : "Tasks and reminders could not be saved.",
+        );
+      });
   }, [reminders, tasks, workspaceReady]);
   useEffect(() => {
     if (!toast) return;

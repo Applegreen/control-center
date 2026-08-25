@@ -2,6 +2,7 @@ import type { ReminderItem, WorkspaceState } from "@/lib/types";
 import { getDatabase } from "@/lib/server/database";
 import { hasWorkspaceState, readWorkspaceState, writeWorkspaceState } from "@/lib/workspace-store";
 import { cleanTaskItems } from "@/lib/tasks";
+import { legacyBrowserImportAllowed } from "@/lib/server/settings";
 
 export const runtime = "nodejs";
 
@@ -39,7 +40,11 @@ function cleanReminders(value: unknown): ReminderItem[] {
 export async function GET() {
   try {
     const database = getDatabase();
-    return Response.json({ ...readWorkspaceState(database), initialized: hasWorkspaceState(database) });
+    return Response.json({
+      ...readWorkspaceState(database),
+      initialized: hasWorkspaceState(database),
+      legacyBrowserImportAllowed: legacyBrowserImportAllowed(),
+    });
   } catch {
     return Response.json(
       { error: "Tasks and reminders could not be read safely. Restore the local database from a backup before making changes." },

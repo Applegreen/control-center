@@ -191,6 +191,7 @@ export type WorkspaceState = {
 
 export type WorkspaceStateResponse = WorkspaceState & {
   initialized: boolean;
+  legacyBrowserImportAllowed: boolean;
 };
 
 export type DailyBriefItem = {

@@ -4,6 +4,7 @@ import type { LiveStory } from "@/lib/types";
 
 export const DEFAULT_MENTION_WINDOW_DAYS = 7;
 export const DEFAULT_FUTURE_TOLERANCE_HOURS = 24;
+export const MENTION_COLLECTION_VERSION = "mentions-v5";
 
 export type MentionQueryOptions = {
   identitySignals?: string[];
@@ -354,25 +355,27 @@ export function evaluateMention(
   const primaryInPublisher = containsIdentitySignal(publisherText, primary);
   const primaryDirect = primaryInFeed || primaryInPage || primaryInPublisher;
   const literalHandleEvidence = containsExplicitHandle(directText, primary);
-  const queryMatched = evidence.queryMatched === true;
   const matchedNegative = (evidence.negativeTerms ?? []).find((term) => containsMentionSignal(directText, term));
   if (matchedNegative) {
     return { accepted: false, confidence: "medium", review: false, score: 0, reasons: [`Excluded context: ${matchedNegative}`] };
   }
-  if (!primaryDirect && !queryMatched) {
-    return { accepted: false, confidence: "medium", review: false, score: 0, reasons: [] };
+  if (!primaryDirect) {
+    return {
+      accepted: false,
+      confidence: "medium",
+      review: false,
+      score: 0,
+      reasons: ["Rejected: the result contained no literal identity evidence."],
+    };
   }
 
   const matchedSignals = identitySignals.filter((signal) => containsIdentitySignal(corroborationText, signal));
   const otherSignals = matchedSignals.filter((signal) => normalizeSignal(signal) !== normalizeSignal(primary));
   const matchedAnchors = identityAnchors.filter((signal) => containsMentionSignal(corroborationText, signal));
   const matchedNiche = (evidence.nicheContexts ?? []).filter((signal) => containsMentionSignal(corroborationText, signal));
-  const queryContexts = uniqueSignals(evidence.queryContexts ?? [], primary);
   const primaryIsUnique = isUniqueIdentitySignal(primary);
   const strongCorroborator = otherSignals.some(isUniqueIdentitySignal);
   const pageVerified = primaryInPage || primaryInPublisher;
-  const configuredCaseMatch = `${feedText} ${pageIdentityContext} ${publisherText}`.includes(primary.trim());
-  const localizedContext = matchedAnchors.length > 0 || matchedNiche.length > 0;
 
   let score = primaryDirect ? 45 : 25;
   if (pageVerified) score += 15;
@@ -381,31 +384,19 @@ export function evaluateMention(
   else if (otherSignals.length) score += 15;
   score += Math.min(20, matchedAnchors.length * 10);
   score += Math.min(20, matchedNiche.length * 10);
-  score += Math.min(10, queryContexts.length * 5);
   score = Math.min(100, score);
 
   const highConfidence = primaryDirect && (
     primaryIsUnique || literalHandleEvidence || strongCorroborator || otherSignals.length > 0 || matchedAnchors.length >= 2
   );
-  const reviewCandidate = !highConfidence && (
-    (!strictMode && (primaryDirect || queryMatched)) ||
-    (queryMatched && (
-      primaryIsUnique ||
-      otherSignals.length > 0 ||
-      matchedAnchors.length > 0 ||
-      (!primaryDirect && queryContexts.length > 0) ||
-      configuredCaseMatch && localizedContext
-    ))
-  );
+  const reviewCandidate = !highConfidence && !strictMode;
   const accepted = highConfidence || reviewCandidate;
   const reasons = [
-    primaryDirect ? `Content match: ${primary}` : `Provider exact-query match: ${primary}`,
+    `Content match: ${primary}`,
     ...otherSignals.slice(0, 3).map((signal) => `Identity signal: ${signal}`),
     ...matchedAnchors.slice(0, 3).map((signal) => `Identity context: ${signal}`),
     ...matchedNiche.slice(0, 3).map((signal) => `Niche context: ${signal}`),
-    ...queryContexts.slice(0, 3).map((signal) => `Query context: ${signal}`),
   ];
-  if (queryMatched && !primaryDirect) reasons.push("Review: the search provider did not expose the matching page text in its feed.");
   if (!accepted && strictMode) reasons.push("Rejected: an ambiguous identity lacked corroboration.");
   return {
     accepted,

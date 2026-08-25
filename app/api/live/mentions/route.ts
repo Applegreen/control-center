@@ -7,6 +7,7 @@ import {
   canonicalizeMentionUrl,
   evaluateMention,
   isWithinMentionWindow,
+  MENTION_COLLECTION_VERSION,
   mentionIdentity,
 } from "@/lib/mention-filter";
 import { syncContentItems } from "@/lib/server/database";
@@ -85,7 +86,7 @@ export async function GET() {
   const freshSince = new Date(Date.parse(checkedAt) - MENTION_WINDOW_DAYS * 86_400_000).toISOString();
   const freshUntil = new Date(Date.parse(checkedAt) + 10 * 60 * 1000).toISOString();
   const terms = [...new Set([...settings.mentions.terms, ...settings.mentions.websites])];
-  const mentionScope = terms.length ? collectionScope("mentions-v4", [
+  const mentionScope = terms.length ? collectionScope(MENTION_COLLECTION_VERSION, [
     `strict:${settings.mentions.strictMode}`,
     ...settings.mentions.terms.map((term) => `term:${term}`),
     ...settings.mentions.websites.map((website) => `website:${website}`),
@@ -187,8 +188,6 @@ export async function GET() {
         canonicalUrl,
         publisher: item.source,
         pageText: pageTexts.get(canonicalUrl) || "",
-        queryMatched: true,
-        queryContexts: task.queryContexts,
         nicheContexts,
       },
     );

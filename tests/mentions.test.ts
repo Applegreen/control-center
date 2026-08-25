@@ -8,6 +8,7 @@ import {
   canonicalizeMentionUrl,
   evaluateMention,
   isWithinMentionWindow,
+  MENTION_COLLECTION_VERSION,
   mentionIdentity,
   normalizeSignal,
 } from "../lib/mention-filter";
@@ -124,7 +125,7 @@ test("does not infer unique identity from name length or erase configured handle
   ).confidence, "high");
 });
 
-test("retains a contextual exact-query result for review when a thin feed omits the name", () => {
+test("rejects provider query hits when the result contains no literal identity evidence", () => {
   const result = evaluateMention(
     story({ title: "Robotics founders to follow this year", summary: "A search-feed headline and publisher only." }),
     "Alex Morgan",
@@ -133,10 +134,11 @@ test("retains a contextual exact-query result for review when a thin feed omits 
     true,
     { queryMatched: true, queryContexts: ["robotics"], nicheContexts: ["robotics"] },
   );
-  assert.equal(result.accepted, true);
+  assert.equal(result.accepted, false);
   assert.equal(result.confidence, "medium");
-  assert.equal(result.review, true);
-  assert.match(result.reasons.join(" "), /did not expose the matching page text/i);
+  assert.equal(result.review, false);
+  assert.match(result.reasons.join(" "), /no literal identity evidence/i);
+  assert.doesNotMatch(result.reasons.join(" "), /exact-query|query context/i);
 
   const uncorroborated = evaluateMention(
     story({ title: "Unrelated weekly roundup" }),
@@ -149,6 +151,55 @@ test("retains a contextual exact-query result for review when a thin feed omits 
   assert.equal(uncorroborated.accepted, false);
 });
 
+test("rejects the reported Future Tools false positives without observed brand evidence", () => {
+  const candidates = [
+    story({ title: "The ROI of Enterprise Wearable App Development: What CTOs Should Measure", summary: "A mobile development guide." }),
+    story({ title: "Lookism Filter Technology: How AI Is Changing Photo Editing", summary: "Future tools may make editing easier." }),
+    story({ title: "Google's $10M Bet on Spirit Airlines Data Raises AI Privacy Fears", summary: "A story about shaping future tools." }),
+  ];
+
+  for (const candidate of candidates) {
+    const result = evaluateMention(
+      candidate,
+      "Future Tools",
+      ["Future Tools", "@futuretools", "futuretools.io"],
+      [],
+      true,
+      { queryMatched: true, queryContexts: ["AI"], nicheContexts: ["AI"] },
+    );
+    assert.equal(result.accepted, false, candidate.title);
+    assert.doesNotMatch(result.reasons.join(" "), /exact-query|query context/i);
+  }
+});
+
+test("a literal ambiguous brand needs strong configured corroboration in strict mode", () => {
+  const candidate = story({ title: "Future Tools publishes its annual roundup", summary: "The creator software directory and Futurepedia competitor reviewed new releases." });
+  const withoutAnchor = evaluateMention(
+    candidate,
+    "Future Tools",
+    ["Future Tools"],
+    [],
+    true,
+    { queryMatched: true, nicheContexts: ["AI"] },
+  );
+  const withAnchor = evaluateMention(
+    candidate,
+    "Future Tools",
+    ["Future Tools"],
+    ["creator software directory", "Futurepedia competitor"],
+    true,
+    { queryMatched: true, nicheContexts: ["AI"] },
+  );
+
+  assert.equal(withoutAnchor.accepted, false);
+  assert.equal(withAnchor.accepted, true);
+  assert.match(withAnchor.reasons.join(" "), /Identity context: creator software directory/);
+});
+
+test("the evidence-version scope retires prior permissive mention results", () => {
+  assert.equal(MENTION_COLLECTION_VERSION, "mentions-v5");
+});
+
 test("strict review evidence must be local to the identity and preserve configured brand casing", () => {
   const signals = ["Alex Morgan", "Northstar Tools"];
   const relevantPerson = evaluateMention(
@@ -159,7 +210,7 @@ test("strict review evidence must be local to the identity and preserve configur
     true,
     { queryMatched: true, pageText: "Alex Morgan is an AI educator sharing practical automation guidance.", nicheContexts: ["AI"] },
   );
-  assert.equal(relevantPerson.accepted, true);
+  assert.equal(relevantPerson.accepted, false);
   assert.equal(relevantPerson.confidence, "medium");
 
   const distantNamesake = evaluateMention(

@@ -60,7 +60,8 @@ Strict mode requires identity evidence:
 - common names and broad brand phrases need a second configured signal;
 - roles, products, locations, collaborators, and niche topics can serve as anchors;
 - weak namesakes and broad word overlap are rejected as noise;
-- contextual matches are separated for review.
+- discovery-query words never count as article evidence; a result must contain the configured identity before it can qualify;
+- literal but ambiguous matches stay review-only when strict mode is off; strict mode requires a second identity signal or multiple configured identity anchors.
 
 Canonical story identities are stored locally. Once a result is archived, later scans do not resurface the same story through a search-provider wrapper or tracking URL.
 

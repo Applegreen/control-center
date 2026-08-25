@@ -179,6 +179,8 @@ export type TaskItem = {
   priority: string;
   done: boolean;
   createdAt?: string;
+  completedAt?: string;
+  seriesId?: string | number;
 };
 
 export type WorkspaceState = {

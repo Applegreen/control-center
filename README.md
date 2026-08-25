@@ -77,6 +77,10 @@ Public collection is provider-controlled and best effort. A platform can change 
 
 Follower and subscriber growth is measured against the preceding successful check and remains visible on cached page loads. Post, video, and thread counts are shown only as separate content metadata; they are never used as audience growth.
 
+## Tasks
+
+Completing a repeating task records a dated, immutable occurrence in Completed and advances the active series to its next due date. One-time tasks remain in Completed until you delete them.
+
 ## Newsletter Gmail
 
 The newsletter mailbox can be completely separate from any Gmail account used elsewhere.

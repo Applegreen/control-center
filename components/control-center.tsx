@@ -64,6 +64,7 @@ import type {
 import { isDailyBriefItemInWindow } from "@/lib/brief-window";
 import { combineAudienceChanges } from "@/lib/audience-growth";
 import { sortIndustryItems, type IndustrySortOrder } from "@/lib/industry";
+import { completeTaskItems } from "@/lib/tasks";
 
 type Tab =
   | "today"
@@ -205,16 +206,6 @@ function formatTaskDue(value: string) {
 
 function isTaskDueToday(value: string) {
   return value === "Today" || value === localDateValue();
-}
-
-function nextRecurringDue(value: string, recurrence: string) {
-  const base = /^\d{4}-\d{2}-\d{2}$/.test(value)
-    ? new Date(`${value}T12:00:00`)
-    : new Date();
-  if (recurrence === "Daily") base.setDate(base.getDate() + 1);
-  if (recurrence === "Weekly") base.setDate(base.getDate() + 7);
-  if (recurrence === "Monthly") base.setMonth(base.getMonth() + 1);
-  return localDateValue(base);
 }
 
 function readLegacyList<T>(key: string): T[] {
@@ -1721,21 +1712,22 @@ function TasksView({
     setShowForm(false);
   };
   const complete = (task: Task) =>
-    setTasks((values) =>
-      values.map((value) =>
-        value.id !== task.id
-          ? value
-          : value.recurrence === "One-time"
-            ? { ...value, done: true }
-            : {
-                ...value,
-                due: nextRecurringDue(value.due, value.recurrence),
-                done: false,
-              },
+    setTasks((values) => completeTaskItems(values, task.id));
+  const open = tasks.filter((task) => !task.done);
+  const completed = tasks
+    .filter((task) => task.done)
+    .sort((a, b) =>
+      (b.completedAt || b.createdAt || "").localeCompare(
+        a.completedAt || a.createdAt || "",
       ),
     );
-  const open = tasks.filter((task) => !task.done);
-  const completed = tasks.filter((task) => task.done);
+  const completedToday = completed.filter(
+    (task) =>
+      task.completedAt &&
+      localDateValue(new Date(task.completedAt)) === localDateValue(),
+  );
+  const dueToday = open.filter((task) => isTaskDueToday(task.due));
+  const todayTotal = dueToday.length + completedToday.length;
   return (
     <div className="view">
       <PageHeading
@@ -1808,7 +1800,7 @@ function TasksView({
           <span>open tasks</span>
         </div>
         <div>
-          <b>{open.filter((task) => isTaskDueToday(task.due)).length}</b>
+          <b>{dueToday.length}</b>
           <span>due today</span>
         </div>
         <div>
@@ -1825,11 +1817,11 @@ function TasksView({
           <span>
             <i
               style={{
-                width: `${tasks.length ? (completed.length / tasks.length) * 100 : 0}%`,
+                width: `${todayTotal ? (completedToday.length / todayTotal) * 100 : 0}%`,
               }}
             />
           </span>
-          <small>{completed.length} completed</small>
+          <small>{completedToday.length} completed today</small>
         </div>
       </div>
       {open.length ? (
@@ -1892,7 +1884,16 @@ function TasksView({
           {completed.map((task) => (
             <div className="completed-row" key={task.id}>
               <CheckCircle2 size={16} />
-              <s>{task.title}</s>
+              <div className="completed-copy">
+                <s>{task.title}</s>
+                <small>
+                  {task.completedAt
+                    ? `Completed ${formatDate(task.completedAt)}`
+                    : "Completed"}
+                  {` · was due ${formatTaskDue(task.due)}`}
+                  {task.seriesId !== undefined ? " · recurring occurrence" : ""}
+                </small>
+              </div>
               <button
                 onClick={() =>
                   setTasks((values) =>

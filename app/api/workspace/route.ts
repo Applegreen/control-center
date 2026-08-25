@@ -1,6 +1,7 @@
-import type { ReminderItem, TaskItem, WorkspaceState } from "@/lib/types";
+import type { ReminderItem, WorkspaceState } from "@/lib/types";
 import { getDatabase } from "@/lib/server/database";
 import { hasWorkspaceState, readWorkspaceState, writeWorkspaceState } from "@/lib/workspace-store";
+import { cleanTaskItems } from "@/lib/tasks";
 
 export const runtime = "nodejs";
 
@@ -35,27 +36,6 @@ function cleanReminders(value: unknown): ReminderItem[] {
   });
 }
 
-function cleanTasks(value: unknown): TaskItem[] {
-  if (!Array.isArray(value)) throw new Error("Tasks must be a list.");
-  if (value.length > 10_000) throw new Error("The task list is too large.");
-  return value.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const candidate = item as Partial<TaskItem>;
-    const title = cleanText(candidate.title).trim();
-    if (!title) return [];
-    return [{
-      id: cleanId(candidate.id),
-      title,
-      description: cleanText(candidate.description, "No additional details."),
-      due: cleanText(candidate.due, "Today"),
-      recurrence: cleanText(candidate.recurrence, "One-time"),
-      priority: cleanText(candidate.priority, "Normal"),
-      done: candidate.done === true,
-      createdAt: cleanText(candidate.createdAt) || undefined,
-    }];
-  });
-}
-
 export async function GET() {
   try {
     const database = getDatabase();
@@ -73,7 +53,7 @@ export async function PUT(request: Request) {
     const body = await request.json() as Partial<WorkspaceState>;
     const state: WorkspaceState = {
       reminders: cleanReminders(body.reminders),
-      tasks: cleanTasks(body.tasks),
+      tasks: cleanTaskItems(body.tasks),
     };
     return Response.json(writeWorkspaceState(getDatabase(), state));
   } catch (error) {

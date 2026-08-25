@@ -38,7 +38,8 @@ const server = spawn(
       CONTROL_CENTER_DATA_DIR: dataDirectory,
       PORT: String(port),
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    detached: process.platform !== "win32",
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
   },
 );
 let output = "";
@@ -51,6 +52,95 @@ server.stderr.on("data", (chunk) => {
 const exited = new Promise((resolve) =>
   server.once("exit", (code, signal) => resolve({ code, signal })),
 );
+
+async function waitForExit(timeoutMs) {
+  let timeout;
+  try {
+    return await Promise.race([
+      exited,
+      new Promise((resolve) => {
+        timeout = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function forceStopServerTree() {
+  if (!server.pid) return;
+  if (process.platform === "win32") {
+    await new Promise((resolve) => {
+      const killer = spawn(
+        "taskkill",
+        ["/pid", String(server.pid), "/T", "/F"],
+        { stdio: "ignore", windowsHide: true },
+      );
+      killer.once("error", resolve);
+      killer.once("exit", resolve);
+    });
+    return;
+  }
+  try {
+    process.kill(-server.pid, "SIGKILL");
+  } catch {
+    server.kill("SIGKILL");
+  }
+}
+
+async function stopServerOnce() {
+  if (server.exitCode !== null || server.signalCode !== null) return exited;
+  if (server.connected) {
+    await new Promise((resolve) => {
+      server.send({ type: "shutdown" }, (error) => {
+        if (error) server.kill("SIGTERM");
+        resolve();
+      });
+    });
+  } else {
+    server.kill("SIGTERM");
+  }
+  let result = await waitForExit(10_000);
+  if (result) return result;
+  await forceStopServerTree();
+  result = await waitForExit(5_000);
+  if (!result)
+    throw new Error(`Could not stop the smoke-test server.\n${output}`);
+  return result;
+}
+
+let stopPromise;
+function stopServer() {
+  stopPromise ??= stopServerOnce();
+  return stopPromise;
+}
+
+let dataCleanupPromise;
+function removeDataDirectory() {
+  dataCleanupPromise ??= rm(dataDirectory, {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 250,
+  });
+  return dataCleanupPromise;
+}
+
+let handlingSignal = false;
+async function handleSignal(signal) {
+  if (handlingSignal) return;
+  handlingSignal = true;
+  try {
+    await stopServer();
+    await removeDataDirectory();
+  } catch (error) {
+    console.error(error);
+    process.exit(1);
+  }
+  process.exit(signal === "SIGINT" ? 130 : 143);
+}
+for (const signal of ["SIGINT", "SIGTERM"])
+  process.once(signal, () => void handleSignal(signal));
 
 try {
   const deadline = Date.now() + 30_000;
@@ -138,10 +228,6 @@ try {
     "Golden-path launcher smoke passed: health, home page, generic empty first run, and localhost boundary.",
   );
 } finally {
-  server.kill("SIGTERM");
-  await Promise.race([
-    exited,
-    new Promise((resolve) => setTimeout(resolve, 5_000)),
-  ]);
-  await rm(dataDirectory, { recursive: true, force: true });
+  await stopServer();
+  await removeDataDirectory();
 }

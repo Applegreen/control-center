@@ -22,6 +22,29 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   process.exit(1);
 }
 
+let child;
+let forceStopTimer;
+let stopping = false;
+let shutdownRequested = false;
+function stopChild(signal = "SIGTERM") {
+  shutdownRequested = true;
+  if (!child || stopping) return;
+  stopping = true;
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill(signal);
+    forceStopTimer = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null)
+        child.kill("SIGKILL");
+    }, 5_000);
+    forceStopTimer.unref();
+  }
+}
+for (const signal of ["SIGINT", "SIGTERM"])
+  process.once(signal, () => stopChild(signal));
+process.on("message", (message) => {
+  if (message?.type === "shutdown") stopChild();
+});
+
 const npm = npmCommand();
 const runNpm = (arguments_) =>
   spawnSync(npm.command, [...npm.prefix, ...arguments_], {
@@ -158,14 +181,23 @@ async function cleanup() {
   await rm(lockPath, { force: true }).catch(() => undefined);
 }
 
-const child = spawn(npm.command, [...npm.prefix, "start"], {
-  cwd,
-  env: process.env,
-  stdio: "inherit",
-});
-const childExit = new Promise((resolve) =>
-  child.once("exit", (code, signal) => resolve({ code, signal })),
+const nextCli = path.join(cwd, "node_modules", "next", "dist", "bin", "next");
+child = spawn(
+  process.execPath,
+  [nextCli, "start", "--hostname", "127.0.0.1", "--port", String(port)],
+  {
+    cwd,
+    env: process.env,
+    stdio: "inherit",
+  },
 );
+const childExit = new Promise((resolve) =>
+  child.once("exit", (code, signal) => {
+    clearTimeout(forceStopTimer);
+    resolve({ code, signal });
+  }),
+);
+if (shutdownRequested) stopChild();
 const deadline = Date.now() + 30_000;
 while (!(await isControlCenterRunning())) {
   const result = await Promise.race([
@@ -180,7 +212,8 @@ while (!(await isControlCenterRunning())) {
     process.exit(result.code ?? 1);
   }
   if (Date.now() > deadline) {
-    child.kill("SIGTERM");
+    stopChild();
+    await childExit;
     await cleanup();
     console.error(
       `Control Center did not become ready at ${url} within 30 seconds.`,
@@ -194,9 +227,6 @@ console.log(`Local data: ${dataDirectory}`);
 console.log("Keep this window open. Press Ctrl+C to stop.\n");
 openBrowser();
 
-for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => child.kill(signal));
-}
 const result = await childExit;
 await cleanup();
 process.exit(result.code ?? (result.signal ? 0 : 1));

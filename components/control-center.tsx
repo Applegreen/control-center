@@ -1066,7 +1066,7 @@ function MentionsView({ openSettings }: { openSettings: () => void }) {
             <div>
               <span>Needs review</span>
               <b>{data.reviewCount || 0}</b>
-              <small>Contextual search evidence</small>
+              <small>Literal matches when strict mode is off</small>
             </div>
             <div>
               <span>Noise removed</span>
@@ -1076,9 +1076,10 @@ function MentionsView({ openSettings }: { openSettings: () => void }) {
             <div className="mention-callout">
               <ShieldCheck size={19} />
               <p>
-                <b>Identity-aware filtering</b>Direct aliases and domains
-                qualify strongly. Context-only search hits are clearly marked
-                for review instead of being silently discarded.
+                <b>Identity-aware filtering</b>Provider query terms never count
+                as evidence. Exact aliases and domains can qualify directly;
+                ambiguous names require configured identity anchors in strict
+                mode.
               </p>
             </div>
           </div>

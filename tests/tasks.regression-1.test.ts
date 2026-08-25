@@ -58,6 +58,24 @@ test("repeated recurring completions retain every dated occurrence", () => {
   );
 });
 
+test("a stale double-click cannot complete and advance the same occurrence twice", () => {
+  const now = new Date(2026, 7, 25, 12);
+  const first = completeTaskItems([recurring], recurring.id, {
+    now,
+    occurrenceId: "occurrence-1",
+    expectedDue: "2026-08-25",
+  });
+  const second = completeTaskItems(first, recurring.id, {
+    now,
+    occurrenceId: "occurrence-2",
+    expectedDue: "2026-08-25",
+  });
+
+  assert.deepEqual(second, first);
+  assert.equal(second.filter((task) => task.done).length, 1);
+  assert.equal(second.find((task) => task.id === recurring.id)?.due, "2026-09-01");
+});
+
 test("one-time completions keep their original row and completion time", () => {
   const oneTime = { ...recurring, id: "one", recurrence: "One-time" };
   const now = new Date(2026, 7, 25, 15);
@@ -73,6 +91,32 @@ test("overdue recurrences advance to the first date after completion day", () =>
   assert.equal(
     nextRecurringDue("2026-08-20", "Daily", new Date(2026, 7, 25, 12)),
     "2026-08-26",
+  );
+});
+
+test("monthly recurrences retain their anchor day after a short month", () => {
+  const monthly = {
+    ...recurring,
+    id: "monthly-series",
+    due: "2027-01-31",
+    recurrence: "Monthly",
+  };
+  const february = completeTaskItems([monthly], monthly.id, {
+    now: new Date(2027, 0, 31, 12),
+    occurrenceId: "january-occurrence",
+  });
+  const march = completeTaskItems(february, monthly.id, {
+    now: new Date(2027, 1, 28, 12),
+    occurrenceId: "february-occurrence",
+  });
+
+  assert.equal(
+    february.find((task) => task.id === monthly.id)?.due,
+    "2027-02-28",
+  );
+  assert.equal(
+    march.find((task) => task.id === monthly.id)?.due,
+    "2027-03-31",
   );
 });
 

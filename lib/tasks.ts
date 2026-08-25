@@ -23,12 +23,12 @@ function dateFromTaskValue(value: string, fallback: Date) {
   return new Date(year, month - 1, day, 12);
 }
 
-function addRecurrence(date: Date, recurrence: string) {
+function addRecurrence(date: Date, recurrence: string, anchorDay?: number) {
   const next = new Date(date);
   if (recurrence === "Daily") next.setDate(next.getDate() + 1);
   if (recurrence === "Weekly") next.setDate(next.getDate() + 7);
   if (recurrence === "Monthly") {
-    const desiredDay = next.getDate();
+    const desiredDay = anchorDay || next.getDate();
     next.setDate(1);
     next.setMonth(next.getMonth() + 1);
     const finalDay = new Date(
@@ -46,12 +46,17 @@ export function nextRecurringDue(
   value: string,
   recurrence: string,
   now = new Date(),
+  anchorDay?: number,
 ) {
   if (!RECURRING_RECURRENCES.has(recurrence)) return localDateValue(now);
   let next = dateFromTaskValue(value, now);
   const today = dateFromTaskValue(localDateValue(now), now);
+  const recurrenceAnchor =
+    recurrence === "Monthly" && Number.isInteger(anchorDay) && anchorDay! >= 1 && anchorDay! <= 31
+      ? anchorDay
+      : next.getDate();
   do {
-    next = addRecurrence(next, recurrence);
+    next = addRecurrence(next, recurrence, recurrenceAnchor);
   } while (next <= today);
   return localDateValue(next);
 }
@@ -59,10 +64,18 @@ export function nextRecurringDue(
 export function completeTaskItems(
   tasks: TaskItem[],
   taskId: TaskItem["id"],
-  options: { now?: Date; occurrenceId?: TaskItem["id"] } = {},
+  options: {
+    now?: Date;
+    occurrenceId?: TaskItem["id"];
+    expectedDue?: string;
+  } = {},
 ) {
   const task = tasks.find((candidate) => candidate.id === taskId);
-  if (!task || task.done) return tasks;
+  if (
+    !task ||
+    task.done ||
+    (options.expectedDue !== undefined && task.due !== options.expectedDue)
+  ) return tasks;
   const now = options.now || new Date();
   const completedAt = now.toISOString();
   if (!RECURRING_RECURRENCES.has(task.recurrence)) {
@@ -77,13 +90,23 @@ export function completeTaskItems(
     completedAt,
     seriesId: task.id,
   };
+  const recurrenceAnchorDay =
+    task.recurrence === "Monthly"
+      ? task.recurrenceAnchorDay || dateFromTaskValue(task.due, now).getDate()
+      : undefined;
   const advanced = tasks.map((candidate) =>
     candidate.id === taskId
       ? {
           ...candidate,
-          due: nextRecurringDue(candidate.due, candidate.recurrence, now),
+          due: nextRecurringDue(
+            candidate.due,
+            candidate.recurrence,
+            now,
+            recurrenceAnchorDay,
+          ),
           done: false,
           completedAt: undefined,
+          recurrenceAnchorDay,
         }
       : candidate,
   );
@@ -126,6 +149,13 @@ export function cleanTaskItems(value: unknown): TaskItem[] {
         typeof candidate.seriesId === "string" ||
         typeof candidate.seriesId === "number"
           ? candidate.seriesId
+          : undefined,
+      recurrenceAnchorDay:
+        typeof candidate.recurrenceAnchorDay === "number" &&
+        Number.isInteger(candidate.recurrenceAnchorDay) &&
+        candidate.recurrenceAnchorDay >= 1 &&
+        candidate.recurrenceAnchorDay <= 31
+          ? candidate.recurrenceAnchorDay
           : undefined,
     }];
   });

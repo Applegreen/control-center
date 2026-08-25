@@ -1713,7 +1713,9 @@ function TasksView({
     setShowForm(false);
   };
   const complete = (task: Task) =>
-    setTasks((values) => completeTaskItems(values, task.id));
+    setTasks((values) =>
+      completeTaskItems(values, task.id, { expectedDue: task.due }),
+    );
   const open = tasks.filter((task) => !task.done);
   const completed = tasks
     .filter((task) => task.done)

@@ -181,6 +181,7 @@ export type TaskItem = {
   createdAt?: string;
   completedAt?: string;
   seriesId?: string | number;
+  recurrenceAnchorDay?: number;
 };
 
 export type WorkspaceState = {

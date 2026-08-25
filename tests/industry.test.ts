@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
-import { combineIndustryDiscoveries, freshIndustryDiscoveries, prioritizeIndustryItems, sortIndustryItems, splitIndustryLibrary } from "../lib/industry";
+import { combineIndustryDiscoveries, freshIndustryDiscoveries, sortIndustryItems, splitIndustryLibrary } from "../lib/industry";
+import { discoveredFeedLinks, isFeedDocument } from "../lib/feed-discovery";
 import {
   filterSitemapEntriesForSource,
   isUrlWithinSourcePath,
@@ -30,6 +31,19 @@ function sitemapIndex(urls: string[]) {
   return `<sitemapindex>${urls.map((url) => `<sitemap><loc>${url}</loc></sitemap>`).join("")}</sitemapindex>`;
 }
 
+test("valid empty feeds remain distinguishable from HTML challenge pages", () => {
+  assert.equal(isFeedDocument("<rss><channel><title>Quiet trade journal</title></channel></rss>"), true);
+  assert.equal(isFeedDocument("<html><title>Bot check</title></html>"), false);
+});
+
+test("feed discovery accepts valid HTML attribute spacing and unquoted URLs", () => {
+  const links = discoveredFeedLinks(
+    '<link rel="alternate" type = "application/rss+xml" href = /trade/updates.xml>',
+    "https://example.com/journal/",
+  );
+  assert.deepEqual(links, ["https://example.com/trade/updates.xml"]);
+});
+
 test("watched-site updates remain additive when topic discovery is configured", () => {
   const watchedSite = {
     id: "site-update",
@@ -54,7 +68,7 @@ test("watched-site updates remain additive when topic discovery is configured", 
   assert.deepEqual(combined.map((item) => item.id), ["topic-update", "site-update"]);
 });
 
-test("topic discovery cannot crowd watched-site updates out of the response limit", () => {
+test("watched ordering keeps the complete active set", () => {
   const watched = Array.from({ length: 90 }, (_, index) => ({
     id: `watched-${index}`,
     title: `Watched ${index}`,
@@ -74,10 +88,12 @@ test("topic discovery cannot crowd watched-site updates out of the response limi
     kind: "topic" as const,
   }));
 
-  const selected = prioritizeIndustryItems([...topics, ...watched], 100);
-  assert.equal(selected.length, 100);
-  assert.deepEqual(selected.slice(0, 90).map((item) => item.id), watched.map((item) => item.id));
-  assert.equal(selected.filter((item) => item.kind === "topic").length, 10);
+  const selected = sortIndustryItems([...topics, ...watched], "watched");
+  assert.equal(selected.length, 240);
+  assert.equal(selected.slice(0, 90).every((item) => item.kind !== "topic"), true);
+  assert.equal(selected[0].id, "watched-89");
+  assert.equal(selected[89].id, "watched-0");
+  assert.equal(selected.filter((item) => item.kind === "topic").length, 150);
 });
 
 test("manual archives are separate from expired and out-of-scope history", () => {

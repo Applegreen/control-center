@@ -6,6 +6,7 @@ import { filterPlausiblyDatedStories } from "@/lib/freshness";
 import type { IndustrySource, IndustrySourceStatus, LiveStory } from "@/lib/types";
 import { safeFetchText } from "@/lib/server/safe-fetch";
 import { industrySnapshotsPath } from "@/lib/server/settings";
+import { discoveredFeedLinks, isFeedDocument } from "@/lib/feed-discovery";
 import {
   FEED_MAX_RESPONSE_BYTES,
   SITEMAP_MAX_RESPONSE_BYTES,
@@ -34,22 +35,6 @@ export type IndustryReadResult = { items: LiveStory[]; status: IndustrySourceSta
 
 function storyId(identity: string) {
   return createHash("sha256").update(identity).digest("hex").slice(0, 20);
-}
-
-function absoluteLink(href: string, base: string) {
-  try { return new URL(href, base).toString(); } catch { return ""; }
-}
-
-function isFeed(text: string) {
-  return /<(?:rss|feed|(?:[\w-]+:)?RDF)[\s>]/i.test(text.slice(0, 1500));
-}
-
-function discoveredFeedLinks(html: string, base: string) {
-  return [...html.matchAll(/<link\b[^>]*>/gi)].flatMap(([tag]) => {
-    if (!/type=["'](?:application\/(?:rss\+xml|atom\+xml|rdf\+xml|xml)|text\/xml)["']/i.test(tag)) return [];
-    const href = tag.match(/href=["']([^"']+)["']/i)?.[1];
-    return href ? [absoluteLink(href, base)] : [];
-  }).filter(Boolean);
 }
 
 function unique(values: string[]) {
@@ -95,12 +80,12 @@ function feedCandidates(input: URL) {
 async function firstFeed(candidates: string[], sourceName: string, sourceUrl: string) {
   const attempts = await Promise.allSettled(unique(candidates).map(async (candidate) => {
     const response = await safeFetchText(candidate, { maxBytes: FEED_MAX_RESPONSE_BYTES });
-    if (!isFeed(response.text)) throw new Error("Not a feed");
+    if (!isFeedDocument(response.text)) throw new Error("Not a feed");
     const items = feedItemsInSourcePath(parseFeed(response.text, sourceName, response.finalUrl), sourceUrl);
     return { endpoint: response.finalUrl, items };
   }));
   for (const attempt of attempts) {
-    if (attempt.status === "fulfilled" && attempt.value.items.length) return attempt.value;
+    if (attempt.status === "fulfilled") return attempt.value;
   }
   return null;
 }
@@ -212,9 +197,9 @@ export async function readSource(source: IndustrySource, previous?: SitemapSnaps
   let homepageError = "";
   try { homepage = await safeFetchText(input.toString()); } catch (error) { homepageError = error instanceof Error ? error.message : "Homepage request failed"; }
 
-  if (homepage && isFeed(homepage.text)) {
+  if (homepage && isFeedDocument(homepage.text)) {
     const items = parseFeed(homepage.text, sourceName, homepage.finalUrl);
-    if (items.length) return feedReadResult(source, sourceName, homepage.finalUrl, items, previous);
+    return feedReadResult(source, sourceName, homepage.finalUrl, items, previous);
   }
 
   const feed = await firstFeed([

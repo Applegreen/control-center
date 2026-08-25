@@ -52,10 +52,3 @@ export function freshIndustryDiscoveries(
     now,
   );
 }
-
-export function prioritizeIndustryItems(items: LiveStory[], limit = 100) {
-  if (limit <= 0) return [];
-  const watched = items.filter((item) => item.kind !== "topic");
-  const topics = items.filter((item) => item.kind === "topic");
-  return [...watched, ...topics].slice(0, limit);
-}

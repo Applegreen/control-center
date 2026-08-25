@@ -1,6 +1,7 @@
 import type { LiveFeedResponse, LiveStory } from "@/lib/types";
 import { readSettings } from "@/lib/server/settings";
 import { parseFeed } from "@/lib/server/rss";
+import { isFeedDocument } from "@/lib/feed-discovery";
 import { safeFetchText } from "@/lib/server/safe-fetch";
 import {
   buildMentionQueryPlans,
@@ -131,6 +132,7 @@ export async function GET() {
   const results = await Promise.allSettled(tasks.map(async (task) => {
     const endpoint = providerUrl(task.provider, task.query);
     const response = await safeFetchText(endpoint);
+    if (!isFeedDocument(response.text)) throw new Error("Search provider returned a non-feed response.");
     return { ...task, endpoint, items: parseFeed(response.text, task.provider) };
   }));
 
@@ -222,7 +224,7 @@ export async function GET() {
         : `All ${summary.requests} searches failed`,
     };
   });
-  const items = saved.active.slice(0, 100);
+  const items = saved.active;
   const uniqueErrors = [...new Set(errors)].slice(0, 10);
   return Response.json({
     configured: true,

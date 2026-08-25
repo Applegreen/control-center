@@ -1,14 +1,14 @@
 import type { IndustrySourceStatus, LiveFeedResponse, LiveStory } from "@/lib/types";
 import { readSettings } from "@/lib/server/settings";
 import { parseFeed, readIndustrySnapshots, readSource, writeIndustrySnapshots } from "@/lib/server/rss";
+import { isFeedDocument } from "@/lib/feed-discovery";
 import { INDUSTRY_FRESHNESS_HOURS } from "@/lib/freshness";
 import { syncContentItems } from "@/lib/server/database";
 import { safeFetchText } from "@/lib/server/safe-fetch";
-import { freshIndustryDiscoveries, prioritizeIndustryItems, splitIndustryLibrary } from "@/lib/industry";
+import { freshIndustryDiscoveries, sortIndustryItems, splitIndustryLibrary } from "@/lib/industry";
 import { collectionScope } from "@/lib/collection-scope";
 
 export const runtime = "nodejs";
-const INDUSTRY_RESPONSE_LIMIT = 500;
 
 declare global {
   var controlCenterIndustryQueue: Promise<void> | undefined;
@@ -29,6 +29,7 @@ async function readTopicNews(keywords: string[]) {
   const results = await Promise.allSettled(queries.map(async (query) => {
     const endpoint = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
     const response = await safeFetchText(endpoint);
+    if (!isFeedDocument(response.text)) throw new Error("Topic provider returned a non-feed response.");
     return { endpoint, items: parseFeed(response.text, "Google News").map((item) => ({ ...item, kind: "topic" as const })) };
   }));
   const items: LiveStory[] = [];
@@ -98,7 +99,7 @@ async function collectIndustry() {
   const currentItems = freshIndustryDiscoveries(siteItems, topicItems, Date.parse(checkedAt));
   const saved = syncContentItems<LiveStory>("industry", currentItems, { freshSince, freshUntil, activeScopes });
   const { archivedItems, historyItems } = splitIndustryLibrary(saved.archived);
-  return Response.json({ configured: true, checkedAt, items: prioritizeIndustryItems(saved.active, INDUSTRY_RESPONSE_LIMIT), archivedItems, archiveCount: archivedItems.length, historyItems, historyCount: historyItems.length, errors, sourceStatuses, freshnessHours: INDUSTRY_FRESHNESS_HOURS } satisfies LiveFeedResponse);
+  return Response.json({ configured: true, checkedAt, items: sortIndustryItems(saved.active, "newest"), archivedItems, archiveCount: archivedItems.length, historyItems, historyCount: historyItems.length, errors, sourceStatuses, freshnessHours: INDUSTRY_FRESHNESS_HOURS } satisfies LiveFeedResponse);
 }
 
 export async function GET() {

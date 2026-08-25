@@ -365,14 +365,49 @@ export async function readBoundedResponseText(response: Response, maxBytes: numb
 }
 
 export async function writeFileAtomically(target: string, contents: string) {
-  await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-  const temporary = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.${randomUUID()}.tmp`);
+  const resolvedTarget = path.resolve(target);
+  await mkdir(path.dirname(resolvedTarget), { recursive: true, mode: 0o700 });
+  const temporary = path.join(path.dirname(resolvedTarget), `.${path.basename(resolvedTarget)}.${process.pid}.${randomUUID()}.tmp`);
   try {
     await writeFile(temporary, contents, { mode: 0o600, flag: "wx" });
-    await rename(temporary, target);
+    await queueAtomicReplacement(resolvedTarget, () =>
+      renameWithTransientRetry(temporary, resolvedTarget),
+    );
   } finally {
     await unlink(temporary).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== "ENOENT") throw error;
     });
+  }
+}
+
+const atomicReplacementQueues = new Map<string, Promise<void>>();
+const transientRenameErrors = new Set(["EACCES", "EBUSY", "EPERM"]);
+
+async function renameWithTransientRetry(source: string, target: string) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await rename(source, target);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (!code || !transientRenameErrors.has(code) || attempt >= 5) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 10 * 2 ** attempt));
+    }
+  }
+}
+
+async function queueAtomicReplacement(
+  target: string,
+  replace: () => Promise<void>,
+) {
+  const prior = atomicReplacementQueues.get(target) || Promise.resolve();
+  const queued = prior.catch(() => undefined).then(replace);
+  atomicReplacementQueues.set(target, queued);
+  try {
+    await queued;
+  } finally {
+    if (atomicReplacementQueues.get(target) === queued) {
+      atomicReplacementQueues.delete(target);
+    }
   }
 }

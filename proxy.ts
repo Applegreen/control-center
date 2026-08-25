@@ -10,6 +10,16 @@ function isLoopback(value: string) {
   }
 }
 
+function isSameOrigin(value: string, request: NextRequest) {
+  try {
+    const requestUrl = new URL(request.url);
+    requestUrl.host = request.headers.get("host") || requestUrl.host;
+    return new URL(value).origin === requestUrl.origin;
+  } catch {
+    return false;
+  }
+}
+
 export function proxy(request: NextRequest) {
   const host = request.headers.get("host") || "";
   if (!isLoopback(`http://${host}`)) {
@@ -19,7 +29,7 @@ export function proxy(request: NextRequest) {
     );
   }
   const origin = request.headers.get("origin");
-  if (origin && !isLoopback(origin)) {
+  if (origin && !isSameOrigin(origin, request)) {
     return NextResponse.json(
       { error: "Cross-site requests are blocked." },
       { status: 403 },

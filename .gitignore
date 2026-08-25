@@ -1,0 +1,19 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# local configuration
+.env*
+!.env.example
+/.control-center/
+
+# logs and system files
+*.log
+.DS_Store
+
+# typescript
+*.tsbuildinfo
+.gstack/

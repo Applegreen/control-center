@@ -1,5 +1,5 @@
 import type { LiveFeedResponse, LiveStory } from "@/lib/types";
-import { readSettings } from "@/lib/server/settings";
+import { configuredAiReady, readSettings } from "@/lib/server/settings";
 import { parseFeed } from "@/lib/server/rss";
 import { isFeedDocument } from "@/lib/feed-discovery";
 import { safeFetchText } from "@/lib/server/safe-fetch";
@@ -25,6 +25,16 @@ import {
   type VerifiedMentionPage,
 } from "@/lib/server/mention-page";
 import { researchMentionsWithAi } from "@/lib/server/mention-research";
+import { curateMentionsWithAi } from "@/lib/server/mention-curation";
+import { aiSupportsWebSearch } from "@/lib/ai-providers";
+import { localMentionPriority, sortFeedStories } from "@/lib/feed-priority";
+import { mentionsCacheScope } from "@/lib/collector-scopes";
+import { listContentItems } from "@/lib/archive-store";
+import {
+  preserveSavedMentionCuration,
+  revalidateMentionSummaryBackfill,
+  selectMentionSummaryBackfill,
+} from "@/lib/mention-summary-backfill";
 import {
   readCollectorSnapshot,
   writeCollectorSnapshot,
@@ -72,12 +82,15 @@ function mergeMention(existing: LiveStory | undefined, incoming: LiveStory) {
   };
 }
 
-async function readVerifiedPages(urls: string[]) {
-  const pages = new Map<string, VerifiedMentionPage | null>();
+async function readVerifiedPages(urls: string[], existing = new Map<string, VerifiedMentionPage | null>()) {
+  const pages = existing;
+  // Redirected canonical URLs share the same verified page inside this pass.
+  for (const page of pages.values()) if (page && !pages.has(page.url)) pages.set(page.url, page);
+  const pending = [...new Set(urls)].filter((url) => !pages.has(url));
   let nextIndex = 0;
-  const workers = Array.from({ length: Math.min(8, urls.length) }, async () => {
-    while (nextIndex < urls.length) {
-      const url = urls[nextIndex++];
+  const workers = Array.from({ length: Math.min(8, pending.length) }, async () => {
+    while (nextIndex < pending.length) {
+      const url = pending[nextIndex++];
       pages.set(url, await readVerifiedMentionPage(url));
     }
   });
@@ -181,11 +194,13 @@ async function collectMentions(
   }));
   let aiResearch: Awaited<ReturnType<typeof researchMentionsWithAi>> | null = null;
   let aiProviderStatus: NonNullable<LiveFeedResponse["providerStatuses"]>[number];
-  if (settings.ai.provider === "none") {
+  if (!configuredAiReady(settings) || !aiSupportsWebSearch(settings.ai.provider)) {
     aiProviderStatus = {
       provider: "Broad web research",
       state: "disabled",
-      message: "AI web research is off; Google News and Bing News remain active.",
+      message: configuredAiReady(settings) && !aiSupportsWebSearch(settings.ai.provider)
+        ? "This local provider summarizes verified mentions but cannot search the web; Google News and Bing News remain active."
+        : "AI web research is off or no key is configured; Google News and Bing News remain active.",
     };
   } else {
     try {
@@ -343,9 +358,77 @@ async function collectMentions(
     aiProviderStatus.message = `${aiResearch.urls.length} candidate URLs found across ${aiResearch.completedIdentityCount}/${aiResearch.totalIdentityCount} configured identities; ${aiVerified} passed direct-page identity and freshness checks.${incomplete}`;
   }
 
-  const discovered = [...byId.values()].sort((left, right) =>
-    Date.parse(right.publishedAt || right.discoveredAt || "") -
-    Date.parse(left.publishedAt || left.discoveredAt || ""));
+  const retained = listContentItems<LiveStory>(getDatabase(), "mentions", {
+    freshSince, freshUntil, activeScopes: [mentionScope],
+  }).active;
+  let discovered = sortFeedStories(preserveSavedMentionCuration(
+    [...byId.values()], retained, mentionScope,
+  ).map(localMentionPriority));
+  let backfillCount = 0;
+  let backfillVerified = 0;
+  if (configuredAiReady(settings) && settings.ai.provider !== "none") {
+    const backfillOptions = {
+      scope: mentionScope,
+      provider: settings.ai.provider,
+      now: checkedAt,
+      windowDays: MENTION_WINDOW_DAYS,
+    };
+    const backfill = selectMentionSummaryBackfill(retained, discovered, backfillOptions);
+    backfillCount = backfill.length;
+    await readVerifiedPages(backfill.map((story) => canonicalizeMentionUrl(story.url)), pages);
+    const revalidated = backfill.flatMap((story) => {
+      const verified = revalidateMentionSummaryBackfill(
+        story,
+        pages.get(canonicalizeMentionUrl(story.url)),
+        {
+          ...backfillOptions,
+          identities: terms,
+          identityAnchors: settings.mentions.identityAnchors,
+          nicheContexts,
+          negativeTerms: settings.mentions.negativeTerms,
+          strictMode: settings.mentions.strictMode,
+          excludeOwnedSites: settings.mentions.excludeOwnedSites,
+          websites: settings.mentions.websites,
+        },
+      );
+      return verified ? [verified.story] : [];
+    });
+    backfillVerified = revalidated.length;
+    discovered = sortFeedStories([...discovered, ...revalidated].map(localMentionPriority));
+  }
+  let curationStatus: NonNullable<LiveFeedResponse["providerStatuses"]>[number] = {
+    provider: "Mention summaries and priority",
+    state: "disabled",
+    message: "Built-in priority uses independently verified identity evidence. Configure AI for page summaries and more contextual ranking.",
+  };
+  let curationMode: LiveFeedResponse["curationMode"] = "local";
+  if (configuredAiReady(settings) && discovered.length) {
+    // This stage sees accepted direct-page mentions only. It cannot bypass or
+    // relax the identity/freshness checks that populated byId above.
+    const byPageUrl = new Map([...pages.values()].filter((page): page is VerifiedMentionPage => Boolean(page))
+      .map((page) => [page.url, page]));
+    try {
+      const curated = await curateMentionsWithAi(settings, discovered.map((story) => ({
+        story,
+        pageText: byPageUrl.get(story.url)?.pageText || "",
+      })));
+      discovered = curated.items;
+      curationMode = curated.curatedCount ? curated.provider : "local";
+      curationStatus = {
+        provider: `${settings.ai.provider} summaries and priority`,
+        state: "live",
+        message: `${curated.curatedCount}/${curated.eligibleCount} verified mentions have AI page summaries and priority reasons; remaining items keep built-in ranking.`,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "AI mention curation failed";
+      errors.push(`Mention curation: ${message}`);
+      curationStatus = {
+        provider: `${settings.ai.provider} summaries and priority`,
+        state: "degraded",
+        message: "AI summaries were unavailable for this pass. Verified mentions remain available with built-in ranking.",
+      };
+    }
+  }
   const saved = syncContentItems<LiveStory>("mentions", discovered, { freshSince, freshUntil, activeScopes: [mentionScope] });
   const providerStatuses: NonNullable<LiveFeedResponse["providerStatuses"]> = searchProviders.map((provider) => {
     const summary = providerSummary.get(provider)!;
@@ -358,36 +441,35 @@ async function collectMentions(
         : `All ${summary.requests} searches failed`,
     };
   });
-  providerStatuses.push(aiProviderStatus);
-  const items = saved.active;
+  providerStatuses.push(aiProviderStatus, curationStatus);
+  const items = sortFeedStories(saved.active.map(localMentionPriority));
+  const currentSummaries = items.filter((story) => story.aiSummary?.trim() && story.curationMode === settings.ai.provider).length;
+  const savedSummaryProvider = items.find((story) => story.aiSummary?.trim() && story.curationMode && story.curationMode !== "local")?.curationMode;
+  if (currentSummaries && settings.ai.provider !== "none") curationMode = settings.ai.provider;
+  else if (savedSummaryProvider) curationMode = savedSummaryProvider;
+  if (configuredAiReady(settings) && curationStatus.state !== "degraded") {
+    curationStatus.provider = `${settings.ai.provider} summaries and priority`;
+    curationStatus.state = backfillCount > backfillVerified ? "degraded" : "live";
+    curationStatus.message = `${currentSummaries}/${items.length} current mentions have saved ${settings.ai.provider} page summaries and priority reasons. ${backfillVerified} retained mention${backfillVerified === 1 ? " was" : "s were"} independently reverified for this pass.`;
+    if (backfillCount > backfillVerified) {
+      const skipped = backfillCount - backfillVerified;
+      curationStatus.message += ` ${skipped} saved page${skipped === 1 ? " could" : "s could"} not be reverified and ${skipped === 1 ? "was" : "were"} left unchanged.`;
+    }
+  }
   const uniqueErrors = [...new Set(errors)].slice(0, 10);
   return Response.json({
     configured: true,
     checkedAt,
     items,
-    archivedItems: saved.archived,
+    archivedItems: sortFeedStories(saved.archived.map(localMentionPriority)),
     archiveCount: saved.archived.length,
     errors: uniqueErrors,
     filteredOut: filteredCounts.rejected + filteredCounts.outsideWindow,
     reviewCount: items.filter((item) => item.confidence === "medium").length,
     windowDays: MENTION_WINDOW_DAYS,
     providerStatuses,
+    curationMode,
   } satisfies LiveFeedResponse);
-}
-
-function mentionsCacheScope(
-  settings: Awaited<ReturnType<typeof readSettings>>,
-) {
-  return collectionScope("mentions-response-v1", [
-    `strict:${settings.mentions.strictMode}`,
-    ...settings.mentions.terms.map((term) => `term:${term}`),
-    ...settings.mentions.websites.map((website) => `website:${website}`),
-    ...settings.mentions.identityAnchors.map((anchor) => `anchor:${anchor}`),
-    ...settings.mentions.negativeTerms.map((term) => `exclude:${term}`),
-    `exclude-owned:${settings.mentions.excludeOwnedSites}`,
-    ...settings.industry.keywords.map((keyword) => `niche:${keyword}`),
-    `ai:${settings.ai.provider}:${settings.ai.model}`,
-  ]);
 }
 
 export async function GET(request: Request) {
@@ -401,7 +483,11 @@ export async function GET(request: Request) {
       scope,
     );
     if (cached) {
-      return Response.json(cached.payload, {
+      return Response.json({
+        ...cached.payload,
+        items: sortFeedStories(cached.payload.items.map(localMentionPriority)),
+        archivedItems: cached.payload.archivedItems ? sortFeedStories(cached.payload.archivedItems.map(localMentionPriority)) : undefined,
+      }, {
         headers: { "X-Control-Center-Cache": "hit" },
       });
     }

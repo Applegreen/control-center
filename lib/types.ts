@@ -4,8 +4,24 @@ export type IndustrySource = {
   url: string;
 };
 
-export type AiProvider = "none" | "openai" | "anthropic" | "gemini";
+export type AiProvider = "none" | "openai" | "anthropic" | "gemini" | "xai" | "lmstudio" | "ollama";
 export type AiKeyProvider = Exclude<AiProvider, "none">;
+export type LocalAiProvider = Extract<AiKeyProvider, "lmstudio" | "ollama">;
+export type AiModelOption = {
+  id: string;
+  label: string;
+  /** Actual loaded capacity, never the model's theoretical maximum. */
+  contextLength?: number;
+};
+export type AiModelsResponse = {
+  provider: AiProvider;
+  models: AiModelOption[];
+  defaultModel: string;
+  checkedAt: string;
+  cached: boolean;
+  localOnly: boolean;
+  error?: string;
+};
 
 export type AudiencePlatform =
   | "youtube"
@@ -60,12 +76,14 @@ export type PublicSettings = {
   ai: {
     provider: AiProvider;
     model: string;
+    localBaseUrls: Record<LocalAiProvider, string>;
     keySet: Record<AiKeyProvider, boolean>;
     keySource: Record<AiKeyProvider, "none" | "settings" | "environment">;
   };
   dailyBrief: {
     sourceLabels: string[];
     lookbackDays: number;
+    sections: { industry: number; mentions: number; newsletters: number };
   };
 };
 
@@ -86,6 +104,7 @@ export type SettingsUpdate = Omit<
   ai?: {
     provider: AiProvider;
     model: string;
+    localBaseUrls?: Partial<Record<LocalAiProvider, string>>;
     apiKeys?: Partial<Record<AiKeyProvider, string>>;
     clearKeys?: AiKeyProvider[];
   };
@@ -112,6 +131,8 @@ export type LiveStory = {
   matchReasons?: string[];
   importanceScore?: number;
   importanceReason?: string;
+  aiSummary?: string;
+  curationMode?: "local" | AiKeyProvider;
   collectionScope?: string;
   workflow?: ContentWorkflow;
 };
@@ -154,6 +175,7 @@ export type NewsletterFeedResponse = {
   connected: boolean;
   aiConfigured?: boolean;
   aiProvider?: AiKeyProvider;
+  curationMode?: "local" | AiKeyProvider;
   checkedAt: string;
   items: NewsletterTopic[];
   archivedItems: NewsletterTopic[];
@@ -210,6 +232,10 @@ export type NewsletterTopic = {
   kind: "newsletter-topic";
   title: string;
   summary: string;
+  importanceScore?: number;
+  importanceBaseScore?: number;
+  importanceReason?: string;
+  curationMode?: "local" | AiKeyProvider;
   receivedAt: string;
   url: string;
   gmailUrl: string;
@@ -275,6 +301,7 @@ export type DailyBriefResponse = {
   configured: boolean;
   checkedAt: string;
   items: DailyBriefItem[];
+  snapshot?: DailyBriefSnapshotSection[];
   sourceStatuses: Array<{
     source: string;
     lastSyncedAt: string;
@@ -283,4 +310,15 @@ export type DailyBriefResponse = {
     state: "waiting" | "live" | "error";
     message: string;
   }>;
+};
+
+export type BriefCategory = "industry" | "mentions" | "newsletters";
+export type DailyBriefSnapshotSection = {
+  category: BriefCategory;
+  requestedCount: number;
+  availableCount: number;
+  checkedAt: string;
+  configured: boolean;
+  stale: boolean;
+  items: Array<{ id: string; title: string; summary: string; url: string; source: string; importanceScore?: number }>;
 };

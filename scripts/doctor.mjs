@@ -88,21 +88,25 @@ if (existsSync(settingsPath)) {
     console.log(
       `Settings: readable (${settings.industry?.sources?.length || 0} industry sources, ${settings.audience?.accounts?.length || 0} audience accounts)`,
     );
-    const aiProvider = ["openai", "anthropic", "gemini"].includes(settings.ai?.provider)
+    const aiProvider = ["openai", "anthropic", "gemini", "xai", "lmstudio", "ollama"].includes(settings.ai?.provider)
       ? settings.ai.provider
       : "none";
-    const environmentKey = aiProvider === "openai"
-      ? process.env.OPENAI_API_KEY
-      : aiProvider === "anthropic"
-        ? process.env.ANTHROPIC_API_KEY
-        : aiProvider === "gemini"
-          ? process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
-          : "";
+    const environmentKey = {
+      openai: process.env.OPENAI_API_KEY,
+      anthropic: process.env.ANTHROPIC_API_KEY,
+      gemini: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
+      xai: process.env.XAI_API_KEY,
+      lmstudio: process.env.LM_STUDIO_API_KEY || process.env.LM_API_TOKEN,
+      ollama: process.env.OLLAMA_LOCAL_API_KEY,
+    }[aiProvider] || "";
     const storedKey = aiProvider === "none" ? "" : settings.ai?.apiKeys?.[aiProvider];
+    const localAi = aiProvider === "lmstudio" || aiProvider === "ollama";
     console.log(
       aiProvider === "none"
         ? "AI curation: off (local ranking remains available)"
-        : `AI curation: ${aiProvider} selected (${storedKey || environmentKey ? "key available" : "key missing"})`,
+        : localAi
+          ? `AI curation: ${aiProvider} selected (local server; key optional; loaded model checked when processing)`
+          : `AI curation: ${aiProvider} selected (${storedKey || environmentKey ? "key available" : "key missing"})`,
     );
   } catch (error) {
     healthy = false;

@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import type {
   AiKeyProvider,
+  LocalAiProvider,
   AudienceAccountInput,
   PublicSettings,
   SettingsUpdate,
@@ -29,6 +30,8 @@ import {
   MAX_MENTION_IDENTITIES,
 } from "@/lib/mention-work";
 import { isValidPublicProfileUrl } from "@/lib/public-metrics";
+import { AI_KEY_PROVIDERS, DEFAULT_LOCAL_AI_URLS, aiEnvironmentKey, cleanAiModelOverride, isAiKeyProvider, isLocalAiProvider, isValidAiModelId, localAiBaseUrl } from "@/lib/ai-providers";
+import { defaultBriefSections, normalizeBriefSections } from "@/lib/daily-brief-snapshot";
 
 type StoredAudienceAccount = Omit<
   AudienceAccountInput,
@@ -55,6 +58,7 @@ export type StoredSettings = {
     provider: PublicSettings["ai"]["provider"];
     model: string;
     apiKeys: Record<AiKeyProvider, string>;
+    localBaseUrls: Record<LocalAiProvider, string>;
   };
   dailyBrief: PublicSettings["dailyBrief"];
 };
@@ -89,9 +93,10 @@ const defaults: StoredSettings = {
   ai: {
     provider: "none",
     model: "",
-    apiKeys: { openai: "", anthropic: "", gemini: "" },
+    apiKeys: { openai: "", anthropic: "", gemini: "", xai: "", lmstudio: "", ollama: "" },
+    localBaseUrls: { ...DEFAULT_LOCAL_AI_URLS },
   },
-  dailyBrief: { sourceLabels: [], lookbackDays: 7 },
+  dailyBrief: { sourceLabels: [], lookbackDays: 7, sections: defaultBriefSections },
 };
 
 let settingsWriteQueue = Promise.resolve();
@@ -171,9 +176,14 @@ export async function readSettings(): Promise<StoredSettings> {
       ai: {
         ...defaults.ai,
         ...parsed.ai,
+        provider: isAiKeyProvider(parsed.ai?.provider) ? parsed.ai.provider : "none",
+        // Older browser autofill could persist an email in the free-text model
+        // field. Present Default without rewriting the user's file on read.
+        model: isValidAiModelId(parsed.ai?.model) && parsed.ai.model !== "default" ? parsed.ai.model : "",
         apiKeys: { ...defaults.ai.apiKeys, ...parsed.ai?.apiKeys },
+        localBaseUrls: { ...DEFAULT_LOCAL_AI_URLS, ...parsed.ai?.localBaseUrls },
       },
-      dailyBrief: { ...defaults.dailyBrief, ...parsed.dailyBrief },
+      dailyBrief: { ...defaults.dailyBrief, ...parsed.dailyBrief, sections: normalizeBriefSections(parsed.dailyBrief?.sections) },
     };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -238,15 +248,22 @@ export function toPublicSettings(settings: StoredSettings): PublicSettings {
     ai: {
       provider: settings.ai.provider,
       model: settings.ai.model,
+      localBaseUrls: { ...DEFAULT_LOCAL_AI_URLS, ...settings.ai.localBaseUrls },
       keySet: {
         openai: Boolean(configuredAiApiKey(settings, "openai")),
         anthropic: Boolean(configuredAiApiKey(settings, "anthropic")),
         gemini: Boolean(configuredAiApiKey(settings, "gemini")),
+        xai: Boolean(configuredAiApiKey(settings, "xai")),
+        lmstudio: Boolean(configuredAiApiKey(settings, "lmstudio")),
+        ollama: Boolean(configuredAiApiKey(settings, "ollama")),
       },
       keySource: {
         openai: aiKeySource("openai"),
         anthropic: aiKeySource("anthropic"),
         gemini: aiKeySource("gemini"),
+        xai: aiKeySource("xai"),
+        lmstudio: aiKeySource("lmstudio"),
+        ollama: aiKeySource("ollama"),
       },
     },
     dailyBrief: settings.dailyBrief,
@@ -260,14 +277,14 @@ export function configuredAiApiKey(
   return settings.ai.apiKeys[provider]?.trim() || environmentAiApiKey(provider);
 }
 
+export function configuredAiReady(settings: StoredSettings) {
+  const provider = settings.ai.provider;
+  return provider !== "none" && (isLocalAiProvider(provider) || Boolean(configuredAiApiKey(settings, provider)));
+}
+
 function environmentAiApiKey(provider: AiKeyProvider) {
-  const environmentKey =
-    provider === "openai"
-      ? process.env.OPENAI_API_KEY
-      : provider === "anthropic"
-        ? process.env.ANTHROPIC_API_KEY
-        : process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  return environmentKey?.trim() || "";
+  // OLLAMA_API_KEY is intentionally not an alias: it belongs to Ollama Cloud.
+  return aiEnvironmentKey(provider, process.env);
 }
 
 function cleanList(values: string[]) {
@@ -314,12 +331,16 @@ export async function updateSettings(update: SettingsUpdate) {
     );
     const nextAiKeys = { ...current.ai.apiKeys };
     for (const provider of update.ai?.clearKeys ?? []) {
-      if (["openai", "anthropic", "gemini"].includes(provider))
+      if (isAiKeyProvider(provider))
         nextAiKeys[provider] = "";
     }
-    for (const provider of ["openai", "anthropic", "gemini"] as const) {
+    for (const provider of AI_KEY_PROVIDERS) {
       const incoming = update.ai?.apiKeys?.[provider]?.trim();
-      if (incoming) nextAiKeys[provider] = incoming;
+      if (incoming) {
+        if (incoming.length > 2_000 || /[\r\n]/.test(incoming))
+          throw new Error("The provider key is not valid. Paste only the API key or local server token.");
+        nextAiKeys[provider] = incoming;
+      }
     }
     const cleanedAccounts = update.audience.accounts.map((account) => {
       const profileUrl = account.profileUrl?.trim() || "";
@@ -437,15 +458,20 @@ export async function updateSettings(update: SettingsUpdate) {
       ai: {
         provider: update.ai === undefined
           ? current.ai.provider
-          : ["openai", "anthropic", "gemini"].includes(update.ai.provider)
+          : isAiKeyProvider(update.ai.provider)
             ? update.ai.provider
             : "none",
         model: update.ai === undefined
           ? current.ai.model
-          : update.ai.model.trim().slice(0, 120),
+          : cleanAiModelOverride(update.ai.model),
         apiKeys: nextAiKeys,
+        localBaseUrls: {
+          lmstudio: localAiBaseUrl("lmstudio", update.ai?.localBaseUrls?.lmstudio ?? current.ai.localBaseUrls.lmstudio),
+          ollama: localAiBaseUrl("ollama", update.ai?.localBaseUrls?.ollama ?? current.ai.localBaseUrls.ollama),
+        },
       },
       dailyBrief: {
+        sections: normalizeBriefSections(update.dailyBrief?.sections ?? current.dailyBrief.sections),
         sourceLabels: cleanList(update.dailyBrief?.sourceLabels ?? []),
         lookbackDays: Math.min(
           30,

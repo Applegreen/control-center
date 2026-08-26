@@ -7,6 +7,7 @@ import type {
 type IndustryAiCacheSettings = {
   provider: string;
   model: string;
+  localBaseUrls?: Partial<Record<"lmstudio" | "ollama", string>>;
 };
 
 type IndustryAiCacheOptions = {
@@ -44,6 +45,9 @@ export function industryAiCacheKey(
   return createHash("sha256").update(JSON.stringify({
     provider: settings.provider,
     model: settings.model,
+    localEndpoint: settings.provider === "lmstudio" || settings.provider === "ollama"
+      ? settings.localBaseUrls?.[settings.provider]
+      : undefined,
     niche: options.niche.normalize("NFKC").trim(),
     keywords: normalizedList(options.keywords),
     excludedTerms: normalizedList(options.excludedTerms),

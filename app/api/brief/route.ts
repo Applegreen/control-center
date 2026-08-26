@@ -9,6 +9,11 @@ import {
 import { getDatabase } from "@/lib/server/database";
 import { readSettings } from "@/lib/server/settings";
 import type { DailyBriefItem, DailyBriefResponse } from "@/lib/types";
+import type { LiveFeedResponse, NewsletterFeedResponse } from "@/lib/types";
+import { readCollectorSnapshot } from "@/lib/collector-cache";
+import { industryCacheScope, mentionsCacheScope } from "@/lib/collector-scopes";
+import { buildDailyBriefSnapshot } from "@/lib/daily-brief-snapshot";
+import { newsletterCollectionScope } from "@/lib/server/newsletter-collector";
 
 export const runtime = "nodejs";
 
@@ -75,10 +80,16 @@ async function responsePayload(): Promise<DailyBriefResponse> {
       message: status?.message || "",
     };
   });
+  const snapshot = buildDailyBriefSnapshot(settings.dailyBrief.sections, {
+    industry: readCollectorSnapshot<LiveFeedResponse>(database, "industry", industryCacheScope(settings))?.payload,
+    mentions: readCollectorSnapshot<LiveFeedResponse>(database, "mentions", mentionsCacheScope(settings))?.payload,
+    newsletters: readCollectorSnapshot<NewsletterFeedResponse>(database, "newsletters", newsletterCollectionScope(settings))?.payload,
+  });
   return {
-    configured: settings.dailyBrief.sourceLabels.length > 0,
+    configured: settings.dailyBrief.sourceLabels.length > 0 || snapshot.some((section) => section.configured),
     checkedAt: new Date().toISOString(),
     items,
+    snapshot,
     sourceStatuses,
   };
 }

@@ -8,6 +8,9 @@ import {
   isNewsletterHousekeepingSubject,
   canonicalizeNewsletterUrl,
   likelyNewsletterRedirect,
+  applyNewsletterAiGroups,
+  applyNewsletterAiPriorities,
+  mergeNewsletterTopics,
   type NewsletterMentionRecord,
 } from "../lib/newsletter-intelligence";
 
@@ -136,6 +139,7 @@ test("AI extraction accepts only observed links and substantive non-sponsored st
   ] }, links);
   assert.equal(stories.length, 1);
   assert.equal(stories[0].url, links[0].url);
+  assert.equal(stories[0].importanceScore, 90);
   assert.throws(() => validateNewsletterAiStories({}, links), /stories list/);
 });
 
@@ -149,4 +153,57 @@ test("newsletter tracking identifiers do not split canonical sources", () => {
   assert.equal(canonicalizeNewsletterUrl("https://academy.example/?_bhlid=subscriber&utm_source=letter"), "https://academy.example/");
   assert.equal(likelyNewsletterRedirect("https://elink983.newsletter.example/ss/c/token"), true);
   assert.equal(likelyNewsletterRedirect("https://writer.substack.com/p/editorial-story"), false);
+});
+
+test("newsletter extraction priority survives topic clustering and repeated merges", () => {
+  const topics = buildNewsletterTopics([
+    mention({ importanceScore: 74, importanceReason: "A material research release for the configured industry.", curationMode: "ollama" }),
+    mention({ id: "mention-two", issueId: "issue-two", newsletterSender: "Second Brief", importanceScore: 78, importanceReason: "A consequential release for researchers.", curationMode: "ollama" }),
+  ], "scope-one");
+  assert.equal(topics[0].importanceBaseScore, 78);
+  assert.equal(topics[0].importanceScore, 84);
+  assert.equal(topics[0].curationMode, "ollama");
+  assert.equal(mergeNewsletterTopics([topics[0], topics[0]]).importanceScore, 84);
+  assert.equal(mergeNewsletterTopics([mergeNewsletterTopics([topics[0]])]).importanceScore, 84);
+});
+
+test("AI newsletter group validation rejects unknown IDs and cross-scope grouping", () => {
+  const first = buildNewsletterTopics([mention({})], "scope-one")[0];
+  const second = { ...first, id: "second", url: "https://other.example/story", collectionScope: "scope-two" };
+  const group = { ids: [first.id, second.id], title: "Acme releases its new research model", summary: "Acme announced the model for research teams to use.", score: 83, reason: "A significant release for research teams." };
+  assert.equal(applyNewsletterAiGroups({ groups: [group] }, [first, second], "openai").length, 2);
+  assert.equal(applyNewsletterAiGroups({ groups: [{ ...group, ids: [first.id, second.id, "invented"] }] }, [first, { ...second, collectionScope: "scope-one" }], "openai").length, 2);
+  assert.throws(() => applyNewsletterAiGroups({}, [first, second], "openai"), /groups list/);
+});
+
+test("AI group metadata and archived topic identity survive deduplication", () => {
+  const first = buildNewsletterTopics([mention({})], "scope-one")[0];
+  const archived = { ...first, id: "archived-topic", newsletterSources: ["Second Brief"], workflow: { archiveReason: "user" as const, archivedAt: "2026-08-25T18:00:00Z", restoreEligible: true } };
+  const result = applyNewsletterAiGroups({ groups: [{
+    ids: [first.id, archived.id], title: "Acme releases its new research model",
+    summary: "Acme announced the model for research teams to use.", score: 83, reason: "A significant release for research teams.",
+  }] }, [first, archived], "xai");
+  assert.equal(result.length, 1);
+  assert.equal(result[0].id, archived.id);
+  assert.equal(result[0].workflow?.archiveReason, "user");
+  assert.equal(result[0].importanceBaseScore, 83);
+  assert.equal(result[0].importanceScore, 89);
+  assert.equal(result[0].curationMode, "xai");
+  assert.deepEqual(result[0].sourceLinks, first.sourceLinks);
+});
+
+test("saved newsletter AI ranking preserves source URLs, scope, dates, and archive state", () => {
+  const source = buildNewsletterTopics([mention({})], "scope-one")[0];
+  const result = applyNewsletterAiPriorities({ priorities: [
+    { id: "invented", score: 100, reason: "A fabricated extra topic." },
+    { id: source.id, score: 88, reason: "A meaningful development supported by the saved story.", title: "Model must not replace headline", url: "https://invented.example" },
+    { id: source.id, score: 100, reason: "Duplicate ID cannot override the first valid response." },
+  ] }, [source], "lmstudio");
+  assert.equal(result.length, 1);
+  assert.equal(result[0].importanceScore, 88);
+  assert.equal(result[0].title, source.title);
+  assert.equal(result[0].url, source.url);
+  assert.equal(result[0].collectionScope, source.collectionScope);
+  assert.equal(result[0].receivedAt, source.receivedAt);
+  assert.equal(result[0].curationMode, "lmstudio");
 });

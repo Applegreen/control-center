@@ -38,13 +38,13 @@ export function getDatabase() {
     const schema = database.prepare("PRAGMA user_version").get() as unknown as {
       user_version: number;
     };
-    if (schema.user_version > 5) {
+    if (schema.user_version > 6) {
       database.close();
       throw new Error(
-        `This data directory uses schema ${schema.user_version}, but this Control Center supports schema 5. Update the app before opening it.`,
+        `This data directory uses schema ${schema.user_version}, but this Control Center supports schema 6. Update the app before opening it.`,
       );
     }
-    if (databaseExisted && schema.user_version < 5) {
+    if (databaseExisted && schema.user_version < 6) {
       const backupDirectory = path.join(directory, "migration-backups");
       mkdirSync(backupDirectory, { recursive: true, mode: 0o700 });
       const backupPath = path.join(
@@ -63,7 +63,7 @@ export function getDatabase() {
         ),
       ),
     );
-    if (schema.user_version < 5) initialized.exec("PRAGMA user_version = 5;");
+    if (schema.user_version < 6) initialized.exec("PRAGMA user_version = 6;");
     chmodSync(databasePath, 0o600);
     globalThis.controlCenterDatabase = initialized;
   }

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import type { NewsletterFeedResponse, NewsletterSourceLink, NewsletterTopic } from "./types";
+import type { AiKeyProvider, NewsletterFeedResponse, NewsletterSourceLink, NewsletterTopic } from "./types";
+import { boundedPriority, newsletterPriority, sortFeedStories } from "./feed-priority";
 
 export type GmailMessagePart = {
   mimeType?: string;
@@ -11,6 +12,9 @@ export type ExtractedNewsletterLink = {
   url: string;
   title: string;
   context: string;
+  importanceScore?: number;
+  importanceReason?: string;
+  curationMode?: "local" | AiKeyProvider;
 };
 
 export type NewsletterAiLink = { id: string; url: string; title: string };
@@ -57,14 +61,14 @@ export function prepareNewsletterForAi(input: { html?: string; text?: string }) 
   return { bodyText: body.slice(0, 50_000), links };
 }
 
-export function validateNewsletterAiStories(value: unknown, links: NewsletterAiLink[]) {
+export function validateNewsletterAiStories(value: unknown, links: NewsletterAiLink[], provider?: AiKeyProvider) {
   if (!value || typeof value !== "object" || Array.isArray(value) ||
       !Array.isArray((value as { stories?: unknown }).stories))
     throw new Error("Newsletter AI did not return a stories list.");
   const byId = new Map(links.map((link) => [link.id, link]));
   return ((value as { stories: unknown[] }).stories).slice(0, 20).flatMap((value): ExtractedNewsletterLink[] => {
     if (!value || typeof value !== "object" || Array.isArray(value)) return [];
-    const story = value as { title?: unknown; summary?: unknown; linkIds?: unknown; score?: unknown; sponsored?: unknown };
+    const story = value as { title?: unknown; summary?: unknown; linkIds?: unknown; score?: unknown; reason?: unknown; sponsored?: unknown };
     if (typeof story.title !== "string" || story.title.trim().length < 12 ||
         typeof story.summary !== "string" || story.summary.trim().length < 20 ||
         typeof story.score !== "number" || !Number.isFinite(story.score) || story.score < 55 ||
@@ -75,6 +79,11 @@ export function validateNewsletterAiStories(value: unknown, links: NewsletterAiL
         url: link.url,
         title: story.title!.toString().trim().slice(0, 240),
         context: story.summary!.toString().trim().slice(0, 700),
+        importanceScore: boundedPriority(story.score),
+        importanceReason: typeof story.reason === "string" && story.reason.trim()
+          ? story.reason.trim().slice(0, 240)
+          : "AI identified a substantive news event supported by the newsletter's source links.",
+        curationMode: provider,
       }] : [];
     }).slice(0, 4);
   }).slice(0, 60);
@@ -93,6 +102,9 @@ export type NewsletterMentionRecord = {
   receivedAt: string;
   gmailUrl: string;
   firstSeenAt: string;
+  importanceScore?: number;
+  importanceReason?: string;
+  curationMode?: "local" | AiKeyProvider;
 };
 
 const trackingParameters = new Set([
@@ -347,6 +359,8 @@ export function buildNewsletterTopics(
       Date.parse(left.firstSeenAt) - Date.parse(right.firstSeenAt) ||
       left.canonicalUrl.localeCompare(right.canonicalUrl))[0];
     const primary = ordered.find((mention) => mention.title.split(/\s+/).length >= 4) || ordered[0];
+    const priority = [...group].filter((mention) => typeof mention.importanceScore === "number" && Number.isFinite(mention.importanceScore))
+      .sort((left, right) => right.importanceScore! - left.importanceScore! || left.id.localeCompare(right.id))[0];
     const newsletterSources = [...new Set(group.map((mention) => mention.newsletterSender))];
     const issueIds = new Set(group.map((mention) => mention.issueId));
     const sourceLinks: NewsletterSourceLink[] = [...new Map(group.map((mention) => [
@@ -357,7 +371,7 @@ export function buildNewsletterTopics(
         publisher: mention.publisher,
       },
     ])).values()];
-    return {
+    return newsletterPriority({
       id: topicId(anchor),
       kind: "newsletter-topic" as const,
       title: primary.title,
@@ -371,7 +385,13 @@ export function buildNewsletterTopics(
       evidenceIssueIds: [...issueIds],
       sourceLinks,
       collectionScope,
-    };
+      ...(priority ? {
+        importanceBaseScore: boundedPriority(priority.importanceScore),
+        importanceScore: boundedPriority(priority.importanceScore),
+        importanceReason: priority.importanceReason,
+        curationMode: priority.curationMode,
+      } : {}),
+    });
   }).sort((left, right) => Date.parse(right.receivedAt) - Date.parse(left.receivedAt));
 }
 
@@ -379,14 +399,16 @@ export function mergeNewsletterTopics(
   topics: NewsletterTopic[],
   copy: { title?: string; summary?: string } = {},
 ): NewsletterTopic {
-  const primary = topics[0];
+  const primary = topics.find((topic) => topic.workflow?.archiveReason === "user") || topics[0];
   const newsletterSources = [...new Set(topics.flatMap((topic) => topic.newsletterSources))];
   const evidenceIssueIds = [...new Set(topics.flatMap((topic) => topic.evidenceIssueIds || []))];
   const sourceLinks = [...new Map(topics.flatMap((topic) => topic.sourceLinks)
     .map((link) => [link.url, link])).values()];
   const latest = [...topics].sort((left, right) =>
     Date.parse(right.receivedAt) - Date.parse(left.receivedAt))[0];
-  return {
+  const priority = [...topics].filter((topic) => typeof topic.importanceBaseScore === "number" && Number.isFinite(topic.importanceBaseScore))
+    .sort((left, right) => right.importanceBaseScore! - left.importanceBaseScore! || left.id.localeCompare(right.id))[0];
+  return newsletterPriority({
     ...primary,
     title: copy.title || primary.title,
     summary: copy.summary || primary.summary,
@@ -397,11 +419,91 @@ export function mergeNewsletterTopics(
     evidenceIssueIds,
     coverageCount: evidenceIssueIds.length || Math.max(...topics.map((topic) => topic.coverageCount)),
     newsletterCount: newsletterSources.length,
-  };
+    ...(priority ? {
+      importanceBaseScore: priority.importanceBaseScore,
+      importanceReason: priority.importanceReason,
+      curationMode: priority.curationMode,
+    } : { importanceScore: undefined }),
+  });
+}
+
+export function applyNewsletterAiGroups(
+  value: unknown,
+  topics: NewsletterTopic[],
+  provider: AiKeyProvider,
+) {
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+      !Array.isArray((value as { groups?: unknown }).groups))
+    throw new Error("Newsletter AI did not return a topic groups list.");
+  const byId = new Map(topics.map((topic) => [topic.id, topic]));
+  const used = new Set<string>();
+  const merged: NewsletterTopic[] = [];
+  for (const entry of (value as { groups: unknown[] }).groups) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const group = entry as { ids?: unknown; title?: unknown; summary?: unknown; score?: unknown; reason?: unknown };
+    if (!Array.isArray(group.ids) || group.ids.length < 2 ||
+        group.ids.some((id) => typeof id !== "string" || !byId.has(id) || used.has(id)) ||
+        typeof group.title !== "string" || typeof group.summary !== "string" ||
+        group.title.trim().length < 12 || group.summary.trim().length < 20 ||
+        /https?:\/\//i.test(`${group.title} ${group.summary}`)) continue;
+    const ids = [...new Set(group.ids as string[])];
+    if (ids.length < 2) continue;
+    const members = ids.map((id) => byId.get(id)!);
+    if (new Set(members.map((topic) => topic.collectionScope)).size !== 1) continue;
+    ids.forEach((id) => used.add(id));
+    const topic = mergeNewsletterTopics(members, {
+      title: group.title.trim().slice(0, 240),
+      summary: group.summary.trim().slice(0, 700),
+    });
+    const hasPriority = typeof group.score === "number" && Number.isFinite(group.score) &&
+      typeof group.reason === "string" && group.reason.trim().length >= 10;
+    merged.push(newsletterPriority({
+      ...topic,
+      ...(hasPriority ? {
+        importanceBaseScore: boundedPriority(group.score),
+        importanceReason: (group.reason as string).trim().slice(0, 240),
+        curationMode: provider,
+      } : {}),
+    }));
+  }
+  return [...merged, ...topics.filter((topic) => !used.has(topic.id))]
+    .sort((left, right) => Date.parse(right.receivedAt) - Date.parse(left.receivedAt));
+}
+
+export function applyNewsletterAiPriorities(
+  value: unknown,
+  topics: NewsletterTopic[],
+  provider: AiKeyProvider,
+) {
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+      !Array.isArray((value as { priorities?: unknown }).priorities))
+    throw new Error("Newsletter AI did not return a priority list.");
+  const byId = new Map(topics.map((topic) => [topic.id, topic]));
+  const priorities = new Map<string, { score: number; reason: string }>();
+  for (const entry of (value as { priorities: unknown[] }).priorities) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const item = entry as { id?: unknown; score?: unknown; reason?: unknown };
+    if (typeof item.id !== "string" || !byId.has(item.id) || priorities.has(item.id) ||
+        typeof item.score !== "number" || !Number.isFinite(item.score) ||
+        typeof item.reason !== "string" || item.reason.trim().length < 10 ||
+        /https?:\/\//i.test(item.reason)) continue;
+    priorities.set(item.id, { score: boundedPriority(item.score), reason: item.reason.trim().slice(0, 240) });
+  }
+  if (topics.length && !priorities.size)
+    throw new Error("Newsletter AI returned no valid priorities; built-in ranking was retained.");
+  return topics.map((topic) => {
+    const priority = priorities.get(topic.id);
+    return priority ? newsletterPriority({
+      ...topic,
+      importanceBaseScore: priority.score,
+      importanceReason: priority.reason,
+      curationMode: provider,
+    }) : newsletterPriority(topic);
+  });
 }
 
 export function normalizeNewsletterResponse(payload: NewsletterFeedResponse): NewsletterFeedResponse {
-  const normalize = (topic: NewsletterTopic): NewsletterTopic => ({
+  const normalize = (topic: NewsletterTopic): NewsletterTopic => newsletterPriority({
     ...topic,
     url: canonicalizeNewsletterUrl(topic.url) || topic.url,
     sourceLinks: [...new Map(topic.sourceLinks.map((link) => {
@@ -412,9 +514,9 @@ export function normalizeNewsletterResponse(payload: NewsletterFeedResponse): Ne
   const queued = payload.errors.find((error) => /^\d+ older matching newsletter issues remain queued/.test(error));
   return {
     ...payload,
-    items: payload.items.map(normalize),
-    archivedItems: payload.archivedItems.map(normalize),
-    historyItems: payload.historyItems?.map(normalize),
+    items: sortFeedStories(payload.items.map(normalize)),
+    archivedItems: sortFeedStories(payload.archivedItems.map(normalize)),
+    historyItems: payload.historyItems ? sortFeedStories(payload.historyItems.map(normalize)) : undefined,
     pendingIssueCount: payload.pendingIssueCount ?? (queued ? Number.parseInt(queued, 10) : 0),
     errors: payload.errors.filter((error) => error !== queued),
   };

@@ -7,6 +7,7 @@ import { getDatabase, syncContentItems } from "@/lib/server/database";
 import { safeFetchText } from "@/lib/server/safe-fetch";
 import { freshIndustryDiscoveries, sortIndustryItems, splitIndustryLibrary, topicDiscoveryStatus } from "@/lib/industry";
 import { collectionScope } from "@/lib/collection-scope";
+import { industryCacheScope } from "@/lib/collector-scopes";
 import { curateIndustryDiscoveries, selectDiverseIndustryDiscoveries } from "@/lib/industry-curation";
 import { listIndustryDiscoveries, pruneIndustryDiscoveries, upsertIndustryDiscoveries } from "@/lib/industry-store";
 import { curateIndustryWithAi } from "@/lib/server/industry-ai";
@@ -213,17 +214,6 @@ async function collectIndustry() {
   });
   const { archivedItems, historyItems } = splitIndustryLibrary(saved.archived);
   return Response.json({ configured: true, checkedAt, items: sortIndustryItems(saved.active, "important"), archivedItems, archiveCount: archivedItems.length, historyItems, historyCount: historyItems.length, errors, sourceStatuses, freshnessHours: INDUSTRY_FRESHNESS_HOURS, discoveredCount: rawItems.length, surfacedLimit: settings.industry.dailyLimit, curationMode, providerStatuses } satisfies LiveFeedResponse);
-}
-
-function industryCacheScope(settings: Awaited<ReturnType<typeof readSettings>>) {
-  return collectionScope("industry-response-v1", [
-    settings.industry.description,
-    ...settings.industry.sources.map((source) => `${source.id}:${source.url}`),
-    ...settings.industry.keywords.map((keyword) => `topic:${keyword}`),
-    ...settings.industry.excludedTerms.map((term) => `exclude:${term}`),
-    `limit:${settings.industry.dailyLimit}`,
-    `ai:${settings.ai.provider}:${settings.ai.model}`,
-  ]);
 }
 
 export async function GET(request: Request) {

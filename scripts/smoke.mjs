@@ -199,6 +199,9 @@ try {
     settings.mentions?.excludeOwnedSites !== true ||
     settings.audience?.accounts?.length !== 0 ||
     settings.newsletters?.connected !== false ||
+    settings.dailyBrief?.sections?.industry !== 5 ||
+    settings.dailyBrief?.sections?.mentions !== 5 ||
+    settings.dailyBrief?.sections?.newsletters !== 5 ||
     settings.ai?.provider !== "none" ||
     "apiKeys" in (settings.ai || {})
   ) {
@@ -279,6 +282,33 @@ try {
     if (live.configured !== false || live.items?.length !== 0) {
       throw new Error(`${pathname} did not start in generic setup mode.`);
     }
+    if (pathname === "/api/brief" &&
+        (live.snapshot?.length !== 3 || live.snapshot.some((section) => section.items.length || section.configured))) {
+      throw new Error("A fresh daily brief must contain only empty, unconfigured snapshot sections.");
+    }
+  }
+  const saveBrief = await fetch(`http://127.0.0.1:${port}/api/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...clearedReadback,
+      dailyBrief: { ...clearedReadback.dailyBrief, sections: { industry: 3, mentions: 0, newsletters: 2 } },
+    }),
+  });
+  if (!saveBrief.ok) throw new Error("Daily brief preferences could not be saved.");
+  const briefReadback = await getJson("/api/brief");
+  if (JSON.stringify(briefReadback.snapshot?.map(({ category, requestedCount }) => [category, requestedCount])) !==
+      JSON.stringify([["industry", 3], ["newsletters", 2]])) {
+    throw new Error("Daily brief preferences did not control the saved snapshot.");
+  }
+  for (const invalid of [
+    { ...clearedReadback, ai: { ...clearedReadback.ai, model: "someone@example.com" } },
+    { ...clearedReadback, newsletters: { ...clearedReadback.newsletters, googleClientId: "someone@example.com" } },
+  ]) {
+    const rejected = await fetch(`http://127.0.0.1:${port}/api/settings`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(invalid),
+    });
+    if (rejected.status !== 400) throw new Error("Configuration fields accepted an autofilled email address.");
   }
   const blocked = await fetch(`http://127.0.0.1:${port}/api/settings`, {
     headers: { Host: "attacker.example", Origin: "http://attacker.example" },

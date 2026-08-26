@@ -43,13 +43,11 @@ import {
   Sparkles,
   Sun,
   Trash2,
-  TrendingUp,
   Users,
   X,
   Youtube,
 } from "lucide-react";
 import type {
-  AiKeyProvider,
   AudienceMetric,
   AudiencePlatform,
   DailyBriefItem,
@@ -72,9 +70,14 @@ import { isDailyBriefItemInWindow } from "@/lib/brief-window";
 import {
   AUDIENCE_COMPARISON_WINDOW_LABEL,
   audienceComparisonLabel,
-  combineAudienceChanges,
 } from "@/lib/audience-growth";
-import { modelOverrideAfterProviderChange } from "@/lib/ai-settings";
+import { SettingsInput } from "@/components/settings-input";
+import { AiProviderSettings } from "@/components/ai-provider-settings";
+import { DailySnapshot } from "@/components/daily-snapshot";
+import { AudienceInsights } from "@/components/audience-insights";
+import type { AudienceHistorySeries } from "@/lib/audience-charts";
+import { AI_PROVIDER_LABELS, DEFAULT_LOCAL_AI_URLS, isAiReady } from "@/lib/ai-providers";
+import { sortFeedStories, selectNewsletterTopics, newsletterSourceOptions } from "@/lib/feed-priority";
 import { sortIndustryItems, type IndustrySortOrder } from "@/lib/industry";
 import { completeTaskItems } from "@/lib/tasks";
 import {
@@ -98,6 +101,7 @@ type SettingsSection =
   | "newsletters"
   | "audience"
   | "ai"
+  | "dailyBrief"
   | "integrations";
 type Reminder = ReminderItem;
 type Task = TaskItem;
@@ -130,10 +134,11 @@ const emptySettings: PublicSettings = {
   ai: {
     provider: "none",
     model: "",
-    keySet: { openai: false, anthropic: false, gemini: false },
-    keySource: { openai: "none", anthropic: "none", gemini: "none" },
+    localBaseUrls: DEFAULT_LOCAL_AI_URLS,
+    keySet: { openai: false, anthropic: false, gemini: false, xai: false, lmstudio: false, ollama: false },
+    keySource: { openai: "none", anthropic: "none", gemini: "none", xai: "none", lmstudio: "none", ollama: "none" },
   },
-  dailyBrief: { sourceLabels: [], lookbackDays: 7 },
+  dailyBrief: { sourceLabels: [], lookbackDays: 7, sections: { industry: 5, mentions: 5, newsletters: 5 } },
 };
 
 const nav: { id: Tab; label: string; icon: typeof Activity }[] = [
@@ -441,6 +446,7 @@ function useArchiveAction<T extends CachedFeedPayload>(
       const payload = await response.json();
       if (!response.ok)
         throw new Error(payload.error || "Could not update the archive.");
+      liveDataCache.delete("/api/brief");
       mutate((current) => applyArchiveToPayload(current, id, archived));
     } catch (requestError) {
       setError(
@@ -472,10 +478,12 @@ function DailyBriefPanel({
   settings,
   openSettings,
   addTask,
+  goTo,
 }: {
   settings: PublicSettings;
   openSettings: (section?: SettingsSection) => void;
   addTask: (item: DailyBriefItem) => void;
+  goTo: (tab: Tab) => void;
 }) {
   const { data, loading, error, refresh } = useLiveData<DailyBriefResponse>(
     "/api/brief",
@@ -500,27 +508,16 @@ function DailyBriefPanel({
     <Panel className="daily-brief-panel reveal delay-1">
       <div className="daily-brief-head">
         <div>
-          <p className="eyebrow">Private-source overview</p>
+          <p className="eyebrow">Across your dashboard</p>
           <h2>Daily brief</h2>
           <p>
-            Actionable items synced from the local connector sources you choose.
+            Your top stories at a glance, drawn from the saved queues you choose.
           </p>
         </div>
         <div className="daily-brief-actions">
-          <div className="filter-row">
-            <button
-              className={window === "today" ? "active" : ""}
-              onClick={() => setWindow("today")}
-            >
-              Today
-            </button>
-            <button
-              className={window === "week" ? "active" : ""}
-              onClick={() => setWindow("week")}
-            >
-              Week
-            </button>
-          </div>
+          <button className="button button-ghost" onClick={() => openSettings("dailyBrief")}>
+            <Settings2 size={14} /> Customize
+          </button>
           <button
             className="round-link"
             aria-label="Refresh daily brief"
@@ -531,24 +528,24 @@ function DailyBriefPanel({
           </button>
         </div>
       </div>
-      {!settings.dailyBrief.sourceLabels.length ? (
+      {error && <p className="save-notice" role="alert">{error}</p>}
+      {loading && !data && <p className="brief-loading">Reading your saved dashboard…</p>}
+      {!!data?.snapshot?.length && <DailySnapshot sections={data.snapshot} onOpen={goTo} />}
+      {data && !data.snapshot?.length && (
         <div className="brief-setup-state">
-          <Cable size={24} />
+          <LayoutDashboard size={24} />
           <div>
-            <b>Choose the private sources that matter to you</b>
-            <p>
-              Gmail, Slack, Granola, Calendar, Messages, Computer History, or
-              any other local connector can use the same bridge.
-            </p>
+            <b>Build your own daily snapshot</b>
+            <p>Choose how many stories to include from Industry, Mentions, and Newsletters. No extra connection is needed.</p>
           </div>
-          <button
-            className="button button-primary"
-            onClick={() => openSettings("integrations")}
-          >
-            Set up bridge
-          </button>
+          <button className="button button-primary" onClick={() => openSettings("dailyBrief")}>Choose sections</button>
         </div>
-      ) : error && !data ? (
+      )}
+      {!!settings.dailyBrief.sourceLabels.length && <div className="brief-private-head">
+        <div><p className="eyebrow">Optional private context</p><h3>Messages, meetings & actions</h3></div>
+        <div className="filter-row"><button className={window === "today" ? "active" : ""} onClick={() => setWindow("today")}>Today</button><button className={window === "week" ? "active" : ""} onClick={() => setWindow("week")}>Week</button></div>
+      </div>}
+      {!settings.dailyBrief.sourceLabels.length ? null : error && !data ? (
         <div className="brief-setup-state error-state" role="alert">
           <CircleAlert size={24} />
           <div>
@@ -570,7 +567,7 @@ function DailyBriefPanel({
       ) : items.length ? (
         <div className="daily-brief-grid">
           {items.slice(0, 8).map((item) => (
-            <article className="daily-brief-item" key={item.id}>
+            <article className="daily-brief-item" key={`${item.source}:${item.id}`}>
               <div className="brief-item-meta">
                 <Label tone={item.kind === "action" ? "high" : "brief"}>
                   {item.kind}
@@ -644,8 +641,7 @@ function DailyBriefPanel({
 }
 
 function newsletterSetupReady(settings: PublicSettings) {
-  return settings.newsletters.connected && settings.ai.provider !== "none" &&
-    settings.ai.keySet[settings.ai.provider];
+  return settings.newsletters.connected && isAiReady(settings.ai);
 }
 
 function TodayView({
@@ -716,6 +712,7 @@ function TodayView({
         settings={settings}
         openSettings={openSettings}
         addTask={addBriefTask}
+        goTo={goTo}
       />
       <div className="today-grid reveal delay-2">
         <Panel className="priority-panel">
@@ -820,7 +817,7 @@ function TodayView({
                   {settings.newsletters.connected
                     ? newsletterSetupReady(settings)
                       ? settings.newsletters.connectedEmail
-                      : "Add an AI key to finish setup"
+                      : "Configure AI to finish setup"
                     : "Connect a Gmail account (optional)"}
                 </small>
               </div>
@@ -1144,9 +1141,9 @@ function MentionsView({
     "/api/live/mentions?refresh=1",
   );
   const [view, setView] = useState<"active" | "archive">("active");
+  const [sortOrder, setSortOrder] = useState<"priority" | "newest" | "oldest">("priority");
   const archive = useArchiveAction<LiveFeedResponse>("mentions", mutate);
-  const items =
-    view === "archive" ? data?.archivedItems || [] : data?.items || [];
+  const items = sortFeedStories(view === "archive" ? data?.archivedItems || [] : data?.items || [], sortOrder);
   const highConfidenceCount = (data?.items || []).filter(
     (item) => item.confidence === "high",
   ).length;
@@ -1255,6 +1252,10 @@ function MentionsView({
             ]}
           />
           <div className="mention-feed reveal delay-2">
+            <div className="feed-sort-bar">
+              <span><Sparkles size={14} /> {data.curationMode && data.curationMode !== "local" ? `${AI_PROVIDER_LABELS[data.curationMode]} priority & page summaries` : "Built-in priority · enable AI for richer page summaries"}</span>
+              <label>Sort mentions <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as typeof sortOrder)}><option value="priority">Priority</option><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label>
+            </div>
             {items.map((item) => (
               <article className="mention-card" key={item.id}>
                 <div className="network-avatar network-web">
@@ -1274,6 +1275,8 @@ function MentionsView({
                     {item.matchedTerm && <Label>{item.matchedTerm}</Label>}
                   </div>
                   <p>“{item.title}”</p>
+                  <div className="mention-page-summary">{item.aiSummary || item.summary}</div>
+                  {item.importanceReason && <div className="priority-reason"><Sparkles size={12} /><span>{item.importanceScore !== undefined ? `${item.importanceScore}/100 · ` : ""}{item.importanceReason}</span></div>}
                   <div className="mention-footer">
                     <span>
                       {item.matchReasons?.join(" · ") ||
@@ -1295,6 +1298,7 @@ function MentionsView({
                     href={item.url}
                     target="_blank"
                     rel="noreferrer"
+                    aria-label={`Open ${item.title}`}
                   >
                     <ExternalLink size={16} />
                   </a>
@@ -1544,20 +1548,14 @@ function AudienceView({ openSettings }: { openSettings: () => void }) {
     configured: boolean;
     checkedAt: string;
     items: AudienceMetric[];
+    history?: AudienceHistorySeries[];
   }>("/api/live/audience", 15 * 60 * 1000, "/api/live/audience?refresh=1");
   const items = data?.items || [];
-  const successful = items.filter((item) => !item.error);
-  const total = successful.reduce((sum, item) => sum + (item.total ?? 0), 0);
-  const { change, comparisonCount } = combineAudienceChanges(successful);
   return (
     <div className="view">
       <PageHeading
         eyebrow="Keyless audience ledger"
-        title={
-          successful.length
-            ? `${formatNumber(total)} total audience across platforms`
-            : "Audience"
-        }
+        title="Audience"
         description="Best-effort public totals for the exact profile URLs in Settings, with changes measured against a verified 24–36h baseline instead of the latest refresh."
         action={
           <button
@@ -1582,36 +1580,7 @@ function AudienceView({ openSettings }: { openSettings: () => void }) {
         />
       ) : (
         <>
-          <div className="audience-hero reveal delay-1">
-            <div>
-              <p className="eyebrow">Combined platform totals</p>
-              <strong>{formatNumber(total)}</strong>
-              <span>
-                <TrendingUp size={15} /> summed across {successful.length}
-                {" "}readable account{successful.length === 1 ? "" : "s"};
-                {" "}not deduplicated people
-              </span>
-            </div>
-            <div className="audience-live-copy">
-              <ShieldCheck />
-              <p>
-                Public profile pages are checked first. Counts are tied to each
-                canonical account, so changing a card starts a fresh baseline.
-              </p>
-            </div>
-            <div className="growth-badge">
-              <b>
-                {comparisonCount
-                  ? `${change >= 0 ? "+" : ""}${formatNumber(change)}`
-                  : "Baseline"}
-              </b>
-              <span>
-                {comparisonCount
-                  ? `24–36h baseline · ${comparisonCount} compared`
-                  : "waiting for 24–36h baseline"}
-              </span>
-            </div>
-          </div>
+          <AudienceInsights items={items} history={data.history} checkedAt={data.checkedAt} />
           {error && <ErrorNotice errors={[error]} />}
           <div className="platform-table reveal delay-2">
             <div className="platform-head">
@@ -1713,15 +1682,24 @@ function NewslettersView({
     "/api/live/newsletters?refresh=1",
   );
   const [view, setView] = useState<"active" | "archive" | "history">("active");
+  const [sortOrder, setSortOrder] = useState<"priority" | "newest" | "oldest">("priority");
+  const [selectedSources, setSelectedSources] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(30);
   const archive = useArchiveAction<NewsletterFeedResponse>(
     "newsletters",
     mutate,
   );
-  const items = view === "archive"
+  const sourceItems = view === "archive"
     ? data?.archivedItems || []
     : view === "history"
       ? data?.historyItems || []
       : data?.items || [];
+  const sourceOptions = newsletterSourceOptions(sourceItems);
+  const items = selectNewsletterTopics(sourceItems, { sortOrder, sources: selectedSources, query });
+  const visibleItems = items.slice(0, visibleCount);
+  const changeView = (next: typeof view) => { setView(next); setVisibleCount(30); };
+  const clearFilters = () => { setSelectedSources([]); setQuery(""); setVisibleCount(30); };
   return (
     <div className="view newsletter-view">
       <PageHeading
@@ -1749,11 +1727,11 @@ function NewslettersView({
           description="This can be a completely different account from any Gmail connected elsewhere. The dashboard requests read-only access."
           onSetup={openSettings}
         />
-      ) : data.aiConfigured === false && !data.items.length && !data.historyItems?.length ? (
+      ) : data.aiConfigured === false && !data.items.length && !data.historyItems?.length && !data.archivedItems.length ? (
         <SetupEmpty
           icon={<Sparkles />}
-          title="Add an AI key for newsletter intelligence"
-          description="Choose OpenAI, Anthropic, or Gemini in AI curation. Newsletter text will be sent to only that provider to extract and deduplicate news. Gmail remains read-only."
+          title="Choose AI for newsletter intelligence"
+          description="Connect a cloud AI provider or a loaded LM Studio / Ollama model in AI curation. Newsletter text goes only to the selected provider. Gmail remains read-only."
           onSetup={openAiSettings}
         />
       ) : (
@@ -1769,7 +1747,7 @@ function NewslettersView({
                   : "Saved newsletter intelligence"}
               </b>
               <p>
-                {data.newsletterCount || 0} newsletters · {data.mentionCount || 0} source mentions · {data.aiProvider || "AI"} · checked {formatDate(data.checkedAt)}
+                {data.newsletterCount || 0} newsletters · {data.mentionCount || 0} source mentions · {data.aiProvider ? AI_PROVIDER_LABELS[data.aiProvider] : "AI"} · checked {formatDate(data.checkedAt)}
                 {data.pendingIssueCount ? ` · ${data.pendingIssueCount} older issues queued for background processing` : ""}
                 {!data.connected ? " · Gmail disconnected" : ""}
               </p>
@@ -1782,19 +1760,19 @@ function NewslettersView({
             <div className="filter-row">
               <button
                 className={view === "active" ? "active" : ""}
-                onClick={() => setView("active")}
+                onClick={() => changeView("active")}
               >
                 Past {data.freshnessHours || 36} hours {data.items.length}
               </button>
               <button
                 className={view === "history" ? "active" : ""}
-                onClick={() => setView("history")}
+                onClick={() => changeView("history")}
               >
                 Earlier {data.historyCount || 0}
               </button>
               <button
                 className={view === "archive" ? "active" : ""}
-                onClick={() => setView("archive")}
+                onClick={() => changeView("archive")}
               >
                 Archive {data.archiveCount || 0}
               </button>
@@ -1808,7 +1786,20 @@ function NewslettersView({
             ]}
           />
           <div className="newsletter-stack reveal delay-2">
-            {items.map((item) => (
+            <div className="newsletter-controls">
+              <label className="search-box"><Search size={15} /><input aria-label="Search newsletter stories" autoComplete="off" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(30); }} placeholder="Search headlines, topics, or sources…" /></label>
+              <details className="newsletter-filter-menu">
+                <summary><Mail size={14} /> {selectedSources.length ? `${selectedSources.length} selected newsletters` : "All newsletters"}<ChevronDown size={14} /></summary>
+                <div className="newsletter-filter-options">
+                  <button type="button" onClick={() => { setSelectedSources([]); setVisibleCount(30); }}>All newsletters</button>
+                  {sourceOptions.map(({name, count}) => <label key={name}><input type="checkbox" checked={selectedSources.includes(name)} onChange={(event) => { setSelectedSources((current) => event.target.checked ? [...current, name] : current.filter((source) => source !== name)); setVisibleCount(30); }} /><span>{name}</span><small>{count}</small></label>)}
+                  {!sourceOptions.length && <p>No newsletters in this view yet.</p>}
+                </div>
+              </details>
+              <label className="feed-sort-select">Sort stories<select value={sortOrder} onChange={(event) => { setSortOrder(event.target.value as typeof sortOrder); setVisibleCount(30); }}><option value="priority">Priority</option><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label>
+            </div>
+            <div className="newsletter-results" aria-live="polite"><span>Showing {visibleItems.length} of {items.length} stories{selectedSources.length ? ` · ${selectedSources.join(", ")}` : ""}</span>{(query || selectedSources.length > 0) && <button onClick={clearFilters}>Clear filters <X size={12} /></button>}</div>
+            {visibleItems.map((item) => (
               <article className="newsletter-card" key={item.id}>
                 <div className="sender-mark">
                   {item.title[0]?.toUpperCase() || "N"}
@@ -1830,6 +1821,7 @@ function NewslettersView({
                   </div>
                   <h3>{item.title}</h3>
                   <p>{item.summary}</p>
+                  {item.importanceReason && <div className="priority-reason"><Sparkles size={12} /><span>{item.importanceScore !== undefined ? `${item.importanceScore}/100 · ` : ""}{item.importanceReason}</span></div>}
                   <div className="newsletter-sources">
                     {item.sourceLinks.slice(0, 4).map((source) => (
                       <a
@@ -1897,18 +1889,19 @@ function NewslettersView({
                 </button>}
               </article>
             ))}
+            {items.length > visibleCount && <button className="button button-ghost newsletter-load-more" onClick={() => setVisibleCount((count) => count + 30)}>Show 30 more · {items.length - visibleCount} remaining</button>}
             {!items.length && (
               <Panel className="empty-state">
                 <CheckCircle2 size={28} />
                 <h2>
-                  {view === "archive"
+                  {query || selectedSources.length ? "No stories match these filters" : view === "archive"
                     ? "No archived newsletter stories"
                     : view === "history"
                       ? "No earlier stories yet"
                       : "You’re all caught up"}
                 </h2>
                 <p>
-                  {view === "archive"
+                  {query || selectedSources.length ? "Try another newsletter, a different search, or clear the filters above." : view === "archive"
                     ? "Archived stories remain stored locally without changing Gmail."
                     : view === "history"
                       ? "Stories outside the current reading window remain here as the mailbox backfill is processed."
@@ -2190,7 +2183,7 @@ function TagEditor({
         <small>{help}</small>
       </label>
       <div className="tag-input">
-        <input
+        <SettingsInput
           value={value}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={(event) => {
@@ -2234,16 +2227,6 @@ type SettingsDraft = Omit<SettingsUpdate, "ai" | "industry" | "mentions"> & {
   };
 };
 
-const aiProviderOptions: Array<{
-  id: AiKeyProvider;
-  label: string;
-  placeholder: string;
-}> = [
-  { id: "openai", label: "OpenAI", placeholder: "sk-…" },
-  { id: "anthropic", label: "Anthropic", placeholder: "sk-ant-…" },
-  { id: "gemini", label: "Gemini", placeholder: "AIza…" },
-];
-
 function settingsDraft(settings: PublicSettings): SettingsDraft {
   return {
     ...settings,
@@ -2286,6 +2269,7 @@ function SettingsView({
           "newsletters",
           "audience",
           "ai",
+          "dailyBrief",
           "integrations",
         ].includes(requested)
       )
@@ -2423,6 +2407,7 @@ function SettingsView({
     icon: typeof Activity;
   }> = [
     { id: "general", label: "General", icon: Settings2 },
+    { id: "dailyBrief", label: "Daily brief", icon: LayoutDashboard },
     { id: "industry", label: "Industry", icon: Globe2 },
     { id: "mentions", label: "Mentions", icon: AtSign },
     { id: "newsletters", label: "Newsletters", icon: Mail },
@@ -2485,7 +2470,30 @@ function SettingsView({
             <p>Saved credentials are never returned to the browser.</p>
           </div>
         </aside>
-        <div className="settings-content">
+        <div className="settings-content" key={section}>
+          {section === "dailyBrief" && (
+            <Panel className="settings-panel">
+              <div className="settings-title"><LayoutDashboard /><div>
+                <p className="eyebrow">Your daily snapshot</p><h2>Choose what Today shows</h2>
+                <p>Bring the highest-priority items from your other tabs into one quick brief. Each section uses saved results, not another source search.</p>
+              </div></div>
+              <div className="brief-settings-grid">
+                {(["industry", "mentions", "newsletters"] as const).map((category) => (
+                  <label className="brief-setting-card" key={category}>
+                    <span>{category === "industry" ? <Radio /> : category === "mentions" ? <AtSign /> : <Mail />}</span>
+                    <b>{category === "industry" ? "Industry" : category === "mentions" ? "Mentions" : "Newsletters"}</b>
+                    <small>{category === "industry" ? "The most important industry developments." : category === "mentions" ? "The mentions most worth your attention." : "Top news from your newsletter reading queue."}</small>
+                    <select aria-label={`${category} stories in daily brief`} value={draft.dailyBrief.sections[category]} onChange={(event) => setDraft((value) => ({...value, dailyBrief: {...value.dailyBrief, sections: {...value.dailyBrief.sections, [category]: Number(event.target.value)}}}))}>
+                      <option value={0}>Don&apos;t include</option>
+                      {[1,2,3,4,5,6,7,8,9,10].map((count) => <option key={count} value={count}>Top {count} {count === 1 ? "story" : "stories"}</option>)}
+                    </select>
+                  </label>
+                ))}
+              </div>
+              <div className="settings-caveat"><Sparkles size={17} /><p>With a configured AI provider, AI priority and summaries flow into this brief automatically. Without one, saved local ranking is used. Archived stories are excluded, and a short queue is never padded with old news.</p></div>
+              <div className="bridge-manual"><b>Want private messages and meetings too?</b><p>That is optional. <button type="button" className="text-button" onClick={() => changeSection("integrations")}>Open Integrations</button> to connect a local automation that can read your private apps. It is not needed for the three sections above.</p></div>
+            </Panel>
+          )}
           {section === "general" && (
             <Panel className="settings-panel">
               <div className="settings-title">
@@ -2503,7 +2511,7 @@ function SettingsView({
                   Workspace name
                   <small>Shown in the header and browser title.</small>
                 </label>
-                <input
+                <SettingsInput
                   value={draft.general.workspaceName}
                   onChange={(event) =>
                     setDraft((value) => ({
@@ -2589,7 +2597,7 @@ function SettingsView({
                 </div>
                 {draft.industry.sources.map((source) => (
                   <div className="source-edit-row" key={source.id}>
-                    <input
+                    <SettingsInput
                       aria-label="Source name"
                       value={source.name}
                       onChange={(event) =>
@@ -2607,7 +2615,7 @@ function SettingsView({
                       }
                       placeholder="Source name"
                     />
-                    <input
+                    <SettingsInput
                       aria-label="Source URL"
                       value={source.url}
                       onChange={(event) =>
@@ -2746,7 +2754,7 @@ function SettingsView({
                 placeholder="e.g. professional golfer"
               />
               <label className="toggle-row">
-                <input
+                <SettingsInput
                   type="checkbox"
                   checked={draft.mentions.strictMode}
                   onChange={(event) =>
@@ -2768,7 +2776,7 @@ function SettingsView({
                 </span>
               </label>
               <label className="toggle-row">
-                <input
+                <SettingsInput
                   type="checkbox"
                   checked={draft.mentions.excludeOwnedSites}
                   onChange={(event) =>
@@ -2809,8 +2817,8 @@ function SettingsView({
                   <p>
                     Connect any Google account, including one created only for
                     newsletter subscriptions. Gmail access stays read-only.
-                    Newsletter intelligence also requires an AI key in AI curation;
-                    issue text is sent only to that selected provider.
+                    Newsletter intelligence also needs a cloud or local model
+                    configured in AI curation. Issue text goes only to that selected provider.
                   </p>
                 </div>
               </div>
@@ -2864,7 +2872,7 @@ function SettingsView({
                       From a Google Cloud “Web application” OAuth client.
                     </small>
                   </label>
-                  <input
+                  <SettingsInput
                     aria-label="Google OAuth client ID"
                     autoCapitalize="none"
                     autoComplete="off"
@@ -2892,7 +2900,7 @@ function SettingsView({
                         : "Stored only in the local server data directory."}
                     </small>
                   </label>
-                  <input
+                  <SettingsInput
                     aria-label="Google OAuth client secret"
                     autoComplete="new-password"
                     name="google-oauth-client-secret"
@@ -2924,7 +2932,7 @@ function SettingsView({
                     Promotions.
                   </small>
                 </label>
-                <input
+                <SettingsInput
                   value={draft.newsletters.gmailQuery}
                   onChange={(event) =>
                     setDraft((value) => ({
@@ -3032,7 +3040,7 @@ function SettingsView({
                             How this account appears in the dashboard.
                           </small>
                         </label>
-                        <input
+                        <SettingsInput
                           value={account.label}
                           onChange={(event) =>
                             setDraft((value) => ({
@@ -3055,7 +3063,7 @@ function SettingsView({
                             Used when a full profile URL is not supplied.
                           </small>
                         </label>
-                        <input
+                        <SettingsInput
                           value={account.username}
                           onChange={(event) =>
                             setDraft((value) => ({
@@ -3080,8 +3088,10 @@ function SettingsView({
                             and post URLs are rejected.
                           </small>
                         </label>
-                        <input
+                        <SettingsInput
                           type="url"
+                          fieldKey={`audience-${account.id}-profile-url`}
+                          aria-label={`${account.label || account.platform} public profile URL`}
                           value={account.profileUrl || ""}
                           onChange={(event) =>
                             setDraft((value) => ({
@@ -3123,7 +3133,7 @@ function SettingsView({
                                   Only needed for the Meta API fallback.
                                 </small>
                               </label>
-                              <input
+                              <SettingsInput
                                 value={account.accountId}
                                 onChange={(event) =>
                                   setDraft((value) => ({
@@ -3157,7 +3167,7 @@ function SettingsView({
                                   : "Optional; stored server-side and excluded from Git."}
                               </small>
                             </label>
-                            <input
+                            <SettingsInput
                               type="password"
                               value={account.credential || ""}
                               onChange={(event) =>
@@ -3233,187 +3243,35 @@ function SettingsView({
             </Panel>
           )}
           {section === "ai" && (
-            <Panel className="settings-panel">
-              <div className="settings-title">
-                <Sparkles />
-                <div>
-                  <p className="eyebrow">Background intelligence</p>
-                  <h2>AI curation and web research</h2>
-                  <p>
-                    Pick one provider to semantically rank Industry discoveries
-                    and search more of the public web for Mentions. An AI key is
-                    required for newsletter story extraction and deduplication.
-                    With AI off, Industry and Mentions retain their local collectors.
-                  </p>
-                </div>
-              </div>
-              <div className="credential-grid">
-                <div className="settings-field">
-                  <label>
-                    Active provider
-                    <small>
-                      Only the selected provider is called by background jobs.
-                    </small>
-                  </label>
-                  <select
-                    value={draft.ai.provider}
-                    onChange={(event) => {
-                      const provider = event.target
-                        .value as SettingsDraft["ai"]["provider"];
-                      setDraft((value) => ({
-                        ...value,
-                        ai: {
-                          ...value.ai,
-                          provider,
-                          model: modelOverrideAfterProviderChange(
-                            value.ai.provider,
-                            provider,
-                            value.ai.model,
-                          ),
-                        },
-                      }));
-                    }}
-                  >
-                    <option value="none">Off — local ranking only</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="anthropic">Anthropic</option>
-                    <option value="gemini">Google Gemini</option>
-                  </select>
-                </div>
-                <div className="settings-field">
-                  <label>
-                    Model override
-                    <small>
-                      Optional. Leave blank to use the app&apos;s tested default
-                      for the selected provider. Switching providers clears an
-                      existing override so a model name is never sent to the
-                      wrong provider.
-                    </small>
-                  </label>
-                  <input
-                    value={draft.ai.model}
-                    onChange={(event) =>
-                      setDraft((value) => ({
-                        ...value,
-                        ai: { ...value.ai, model: event.target.value },
-                      }))
-                    }
-                    placeholder="Use recommended default"
-                  />
-                </div>
-              </div>
-              <div className="source-editor ai-key-editor">
-                <div className="source-editor-head">
-                  <b>Provider keys</b>
-                  <span>Save only the provider keys you want available.</span>
-                </div>
-                {aiProviderOptions.map((provider) => {
-                  const source = draft.ai.keySource[provider.id];
-                  const pendingKey = draft.ai.apiKeys?.[provider.id] || "";
-                  const saved = draft.ai.keySet[provider.id];
-                  return (
-                    <div className="ai-key-row" key={provider.id}>
-                      <div>
-                        <b>{provider.label}</b>
-                        <small>
-                          {source === "environment"
-                            ? "Available from this computer's environment"
-                            : saved
-                              ? "Saved in the private local settings file"
-                              : "Not configured"}
-                        </small>
-                      </div>
-                      <input
-                        aria-label={`${provider.label} API key`}
-                        type="password"
-                        autoComplete="off"
-                        value={pendingKey}
-                        onChange={(event) =>
-                          setDraft((value) => ({
-                            ...value,
-                            ai: {
-                              ...value.ai,
-                              apiKeys: {
-                                ...value.ai.apiKeys,
-                                [provider.id]: event.target.value,
-                              },
-                              clearKeys: (value.ai.clearKeys || []).filter(
-                                (item) => item !== provider.id,
-                              ),
-                            },
-                          }))
-                        }
-                        placeholder={saved ? "Configured ••••••••" : provider.placeholder}
-                      />
-                      {source === "settings" && (
-                        <button
-                          className="text-button danger"
-                          type="button"
-                          onClick={() =>
-                            setDraft((value) => ({
-                              ...value,
-                              ai: {
-                                ...value.ai,
-                                apiKeys: {
-                                  ...value.ai.apiKeys,
-                                  [provider.id]: "",
-                                },
-                                clearKeys: [
-                                  ...new Set([
-                                    ...(value.ai.clearKeys || []),
-                                    provider.id,
-                                  ]),
-                                ],
-                                keySet: {
-                                  ...value.ai.keySet,
-                                  [provider.id]: false,
-                                },
-                                keySource: {
-                                  ...value.ai.keySource,
-                                  [provider.id]: "none",
-                                },
-                              },
-                            }))
-                          }
-                        >
-                          <Trash2 size={13} /> Clear saved key
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="settings-caveat">
-                <ShieldCheck size={17} />
-                <p>
-                  Keys stay server-side in the private Control Center data
-                  directory and are never returned to browser code. Provider
-                  usage may incur charges. Connected newsletter text is sent to
-                  this provider; subscriber tracking URLs and email addresses are
-                  masked. Newsletter processing pauses on provider failure while
-                  saved stories remain available. Other private connector, task,
-                  and reminder content is not sent.
-                </p>
-              </div>
-            </Panel>
+            <Panel className="settings-panel"><AiProviderSettings
+              value={draft.ai}
+              onChange={(ai) => setDraft((value) => ({ ...value, ai }))}
+            /></Panel>
           )}
           {section === "integrations" && (
             <Panel className="settings-panel">
               <div className="settings-title">
                 <Cable />
                 <div>
-                  <p className="eyebrow">Local connector bridge</p>
-                  <h2>Daily Brief integrations</h2>
+                  <p className="eyebrow">Optional · advanced setup</p>
+                  <h2>Bring private context into Today</h2>
                   <p>
-                    Choose any private sources your local Codex installation or
-                    automation can read. The bridge is provider-neutral, so it
-                    works for different niches and connector sets.
+                    Use this only if you want Today to include private messages, meetings, or to-dos from apps such as Slack, Gmail, Granola, or Calendar. Industry, Mentions, Audience, and newsletter collection do not need this page.
                   </p>
                 </div>
               </div>
+              <div className="integration-explainer">
+                <h3>How it works</h3>
+                <ol>
+                  <li><b>Choose the apps below.</b> These names are labels for incoming summaries, not logins or API keys. Adding a name does not connect the app.</li>
+                  <li><b>Save settings, then copy the setup prompt.</b> Paste it into Codex (with the relevant plugins installed), or use your own local script.</li>
+                  <li><b>Authorize that automation.</b> It reads only the apps you approve and sends a short summary to this running Control Center. The Today page shows when each source last synced.</li>
+                </ol>
+                <p>No private integrations? Leave this section empty. Your cross-tab daily snapshot still works.</p>
+              </div>
               <TagEditor
-                label="Enabled source labels"
-                help="Use the exact labels your connector sync will send. Examples: Gmail, Slack, Granola, Google Calendar, Apple Messages, Computer History."
+                label="Apps to receive summaries from"
+                help="Add one name at a time, such as Slack or Google Calendar. The copied setup prompt uses these names to match summaries to the right app."
                 values={draft.dailyBrief.sourceLabels}
                 onChange={(sourceLabels) =>
                   setDraft((value) => ({
@@ -3425,7 +3283,7 @@ function SettingsView({
               />
               <div className="settings-field">
                 <label>
-                  Brief data horizon
+                  Keep private context for
                   <small>
                     The maximum recent sync history available locally. Today
                     and Week apply their own narrower display windows.
@@ -3452,8 +3310,8 @@ function SettingsView({
               </div>
               <div className="bridge-card">
                 <div>
-                  <p className="eyebrow">Codex setup</p>
-                  <h3>Copy one portable automation prompt</h3>
+                  <p className="eyebrow">Step 2 · after saving</p>
+                  <h3>Set up the reader in Codex</h3>
                   <p>
                     The prompt tells Codex to use only the source labels above,
                     minimize private content, stay read-only, report each
@@ -3465,7 +3323,7 @@ function SettingsView({
                   className="button button-primary"
                   onClick={() => void copyBridgePrompt()}
                 >
-                  <Copy size={15} /> Copy bridge prompt
+                  <Copy size={15} /> Copy setup prompt
                 </button>
                 <code>
                   {typeof window === "undefined"

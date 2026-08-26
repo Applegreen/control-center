@@ -1,0 +1,20 @@
+.root { min-width: 0; }
+.connectionGrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 18px; }
+.connectionGrid select { text-overflow: ellipsis; padding-right: 24px; }
+.connectionGrid select:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+.modeCard { display: flex; align-items: flex-start; gap: 13px; margin-top: 22px; padding: 18px; border: 1px solid var(--blue-border); border-radius: 9px; background: var(--blue-soft); color: var(--blue); }
+.modeCard > svg { flex: 0 0 auto; margin-top: 1px; }
+.modeCard b { font-family: var(--serif); font-weight: 500; font-size: 18px; color: var(--ink); }
+.modeCard p { margin: 5px 0 0; max-width: 75ch; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.local { background: var(--teal-soft); border-color: var(--positive-border); color: var(--teal); }
+.modelStatus { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 15px 0 0; color: var(--muted); font-size: 10px; }
+.modelStatus > button { flex: 0 0 auto; }
+.error { color: var(--danger); font-size: 10px; line-height: 1.55; }
+.optional { display: inline; width: fit-content; padding: 2px 5px; border-radius: 3px; color: var(--muted); background: var(--paper-deep); font-family: var(--mono); font-size: 8px; font-weight: 400; text-transform: uppercase; letter-spacing: .07em; }
+.keys :global(.source-editor-head) b { display: flex; gap: 7px; align-items: center; }
+.selectedKey { background: var(--teal-soft); box-shadow: inset 3px 0 0 var(--teal); }
+.activeBadge { display: inline-block; margin-left: 7px; padding: 2px 4px; color: var(--teal); font-family: var(--mono); font-size: 7px; font-weight: 500; letter-spacing: .07em; text-transform: uppercase; }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+@media (max-width: 720px) { .connectionGrid { grid-template-columns: 1fr; gap: 0; } .modelStatus { align-items: flex-start; flex-direction: column; gap: 10px; } .keys :global(.source-editor-head) { align-items: flex-start; flex-direction: column; gap: 6px; } }

@@ -1,0 +1,187 @@
+.insights {
+  --audience-youtube: #cb513b;
+  --audience-x: #47728b;
+  --audience-instagram: #b54c7e;
+  --audience-facebook: #436eb7;
+  --audience-linkedin: #247b9c;
+  --audience-threads: #90733c;
+  --audience-tiktok: #238277;
+  margin-bottom: 30px;
+}
+
+:global([data-theme="dark"]) .insights {
+  --audience-youtube: #f17c64;
+  --audience-x: #a4c9db;
+  --audience-instagram: #ef94b9;
+  --audience-facebook: #8cb4f0;
+  --audience-linkedin: #62c3e5;
+  --audience-threads: #d6ba7d;
+  --audience-tiktok: #71cbbd;
+}
+
+.statsRow { display: grid; grid-template-columns: 1.15fr 1fr 1fr; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface); }
+.stat { padding: 24px 27px 22px; }
+.stat + .stat { border-left: 1px solid var(--line); }
+.stat > span { display: flex; align-items: center; gap: 7px; color: var(--muted); font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: .07em; }
+.stat > strong { display: block; margin-top: 12px; font-family: var(--serif); font-size: clamp(27px, 3.1vw, 43px); font-weight: 500; letter-spacing: -.04em; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.stat > strong small { color: var(--faint); font-size: 23px; }
+.stat p { margin: 8px 0 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.positive { color: var(--positive); }
+.negative { color: var(--danger); }
+.neutral { color: var(--muted); }
+.sectionHeading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin: 35px 0 18px; }
+.eyebrow { margin: 0 0 6px; color: var(--coral-dark); font-family: var(--mono); font-size: 8px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.sectionHeading h2 { margin: 0; font-family: var(--serif); font-size: clamp(25px, 2.5vw, 34px); font-weight: 500; letter-spacing: -.035em; }
+.segmented { display: inline-flex; flex-shrink: 0; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--deep-soft); }
+.segmented button { min-width: 60px; min-height: 32px; padding: 6px 11px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 10px; font-weight: 600; cursor: pointer; transition: color .15s ease, background .15s ease; }
+.segmented button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / .1); }
+.segmented button:hover { color: var(--ink); }
+.chartGrid { display: grid; grid-template-columns: minmax(0, 2.4fr) minmax(265px, 1fr); gap: 18px; align-items: stretch; }
+.trendPanel, .mixPanel { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.trendPanel { display: flex; flex-direction: column; min-width: 0; padding: 25px 24px 19px; overflow: hidden; }
+.chartHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 22px; }
+.chartHeading h3, .mixPanel h3 { margin: 0; font-family: var(--serif); font-size: 24px; font-weight: 500; letter-spacing: -.03em; }
+.chartHeading p { max-width: 400px; margin: 7px 0 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.trendPlot { margin: auto 0; }
+.mainChart { display: block; width: 100%; height: auto; min-height: 250px; overflow: visible; }
+.gridLine { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 5; }
+.zeroLine { stroke: var(--line-dark); stroke-width: 1; }
+.axisLabel { fill: var(--muted); font-family: var(--mono); font-size: 10px; }
+.chartSeries { outline: none; }
+.chartSeries:focus-visible path { stroke-width: 4; }
+.chartSeries circle { transition: r .12s ease, opacity .12s ease; }
+.chartReadout { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 11px; min-height: 47px; margin-top: 6px; padding: 10px 13px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); font-size: 10px; }
+.chartReadout > span { color: var(--muted); }
+.chartReadout b { font-weight: 650; }
+.chartReadout strong { margin-left: auto; font-family: var(--mono); font-weight: 600; font-size: 11px; }
+.chartReadout small { font-family: var(--sans); color: var(--muted); font-size: 9px; font-weight: 400; }
+.chartReadout em { font-style: normal; font-family: var(--mono); font-size: 10px; }
+.chartReadout .readoutHint { margin-left: auto; color: var(--faint); font-size: 9px; }
+.chartReadout i, .legend i, .mixLegend i, .historyTable th i { display: inline-block; flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; }
+.legend { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 17px; }
+.legend button { display: inline-flex; align-items: center; gap: 6px; min-height: 31px; max-width: 100%; padding: 5px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-soft); font-size: 9px; cursor: pointer; transition: background .15s ease, opacity .15s ease; }
+.legend button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legend button b { margin-left: 3px; white-space: nowrap; font-family: var(--mono); font-size: 9px; font-weight: 500; }
+.legend button[aria-pressed="false"] { opacity: .45; background: transparent; }
+.legend button[aria-pressed="false"] span { text-decoration: line-through; }
+.legend button:hover { background: var(--deep-hover); opacity: 1; }
+.chartNote { margin: 13px 0 0; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 9px; line-height: 1.7; }
+.chartEmpty { min-height: 285px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; background-image: linear-gradient(var(--line) 1px, transparent 1px); background-size: 100% 57px; background-position: 0 14px; }
+.chartEmptyIcon { display: grid; place-items: center; width: 58px; height: 58px; border: 1px solid var(--line-dark); border-radius: 50%; background: var(--card); color: var(--teal); box-shadow: 0 0 0 9px var(--surface-soft); }
+.chartEmpty h3 { margin: 18px 0 7px; padding: 0 7px; background: var(--card); font-family: var(--serif); font-size: 25px; font-weight: 500; letter-spacing: -.025em; }
+.chartEmpty p { max-width: 310px; margin: 0; padding: 4px 7px; background: var(--card); color: var(--muted); font-size: 11px; line-height: 1.7; }
+.mixPanel { padding: 25px 24px 19px; }
+.mixPanel .eyebrow { color: var(--muted); }
+.donutWrap { position: relative; width: 180px; height: 180px; margin: 12px auto 15px; }
+.donutWrap svg { display: block; width: 100%; height: 100%; }
+.donutWrap > div { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; pointer-events: none; }
+.donutWrap strong { font-family: var(--serif); font-size: 41px; font-weight: 500; line-height: 1; letter-spacing: -.04em; }
+.donutWrap span { margin-top: 6px; color: var(--muted); font-size: 8px; }
+.mixLegend { display: grid; gap: 11px; margin: 0; padding: 0; list-style: none; }
+.mixLegend li { display: flex; align-items: center; gap: 9px; font-size: 10px; }
+.mixLegend li > span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mixLegend b { margin-left: auto; text-align: right; font-family: var(--mono); font-size: 11px; font-weight: 500; }
+.mixLegend small { display: block; margin-top: 3px; color: var(--muted); font-family: var(--sans); font-size: 8px; font-weight: 400; }
+.mixNote { margin: 17px 0 0; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 9px; line-height: 1.7; }
+.accountGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 15px; margin-top: 19px; }
+.accountCard { min-width: 0; position: relative; padding: 20px 21px 15px; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); transition: border-color .2s ease, box-shadow .2s ease; }
+.accountCard::before { content: ""; position: absolute; top: 0; left: 21px; width: 35px; height: 3px; background: var(--account-color); border-radius: 0 0 2px 2px; }
+.accountCard:hover { border-color: color-mix(in srgb, var(--account-color) 55%, var(--line)); box-shadow: var(--shadow); }
+.accountHeading { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.platformMark { display: grid; place-items: center; flex-shrink: 0; width: 30px; height: 30px; border: 1px solid color-mix(in srgb, var(--account-color) 30%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--account-color) 10%, transparent); color: var(--account-color); font-weight: 700; font-size: 17px; }
+.accountHeading > div { min-width: 0; }
+.accountHeading h3 { overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
+.accountHeading p { overflow: hidden; max-width: 200px; margin: 3px 0 0; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 8px; }
+.accountStatus { margin-left: auto; padding: 3px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); font-size: 7px; white-space: nowrap; }
+.limited { color: var(--watch); border-color: var(--watch-border); background: var(--watch-bg); }
+.accountValue { display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px; margin-top: 19px; }
+.accountValue strong { font-family: var(--serif); font-size: clamp(27px, 2.4vw, 36px); font-weight: 500; line-height: 1.05; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.accountValue span { color: var(--muted); font-size: 9px; }
+.dailyChange { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-top: 9px; min-height: 17px; font-size: 9px; }
+.dailyChange b { font-weight: 600; }
+.dailyChange span { margin-left: 2px; color: var(--muted); font-size: 8px; }
+.miniChart { display: block; width: 100%; height: 96px; margin-top: 17px; }
+.miniEmpty { display: flex; align-items: center; gap: 10px; height: 96px; margin-top: 17px; color: var(--account-color); }
+.miniEmpty > span { color: var(--muted); font-family: var(--serif); font-size: 17px; }
+.miniEmpty small { display: block; margin-top: 5px; font-family: var(--sans); font-size: 9px; line-height: 1.6; }
+.cardFoot { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 6px; margin-top: 5px; font-size: 8px; }
+.cardFoot > span { color: var(--muted); }
+.cardFoot b { font-family: var(--mono); font-size: 9px; font-weight: 500; }
+.verifiedAt { margin: 8px 0 0; color: var(--muted); font-size: 8px; line-height: 1.5; }
+.historyTable { margin-top: 19px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); overflow: hidden; }
+.historyTable summary { padding: 14px 18px; font-size: 11px; font-weight: 600; cursor: pointer; }
+.historyTable summary span { margin-left: 12px; color: var(--muted); font-size: 9px; font-weight: 400; }
+.tableScroll { overflow-x: auto; }
+.historyTable table { width: 100%; border-collapse: collapse; font-size: 10px; text-align: left; }
+.historyTable caption { padding: 12px 18px; color: var(--muted); text-align: left; font-size: 10px; line-height: 1.7; }
+.historyTable td, .historyTable th { padding: 11px 18px; border-top: 1px solid var(--line); white-space: nowrap; }
+.historyTable thead { background: var(--paper-deep); color: var(--muted); font-family: var(--mono); font-size: 8px; text-transform: uppercase; letter-spacing: .045em; }
+.historyTable tbody th { font-weight: 500; }
+.historyTable tbody th i { margin-right: 7px; }
+.historyTable tbody th small { display: block; margin: 4px 0 0 14px; color: var(--muted); font-size: 8px; font-weight: 400; }
+.historyTable td { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 1080px) {
+  .chartGrid { grid-template-columns: minmax(0, 1fr) 265px; gap: 14px; }
+  .trendPanel { padding: 21px 17px 17px; }
+  .mixPanel { padding: 21px 19px 17px; }
+  .chartHeading { flex-wrap: wrap; gap: 13px; }
+  .chartHeading .segmented { margin-left: auto; }
+  .stat { padding: 22px 20px; }
+  .stat > span { font-size: 8px; }
+  .stat > strong { font-size: 34px; }
+}
+
+@media (max-width: 800px) {
+  .chartGrid { grid-template-columns: 1fr; }
+  .mixPanel { display: grid; grid-template-columns: 180px 1fr; gap: 0 22px; }
+  .mixPanel > .eyebrow, .mixPanel > h3 { grid-column: 1 / -1; }
+  .mixLegend { align-content: center; margin: 18px 0; }
+  .mixNote { grid-column: 1 / -1; }
+  .donutWrap { margin: 12px 0 0; }
+  .statsRow { grid-template-columns: 1fr 1fr; }
+  .stat:first-child { grid-column: 1 / -1; border-bottom: 1px solid var(--line); }
+  .stat:nth-child(2) { border-left: 0; }
+  .stat:first-child > strong { font-size: 45px; }
+  .chartHeading { flex-wrap: nowrap; }
+  .mainChart { min-height: 0; }
+}
+
+@media (max-width: 520px) {
+  .stat { padding: 19px 15px; }
+  .stat > strong { font-size: 27px; }
+  .stat > span { font-size: 7px; line-height: 1.6; }
+  .stat > span svg { display: none; }
+  .stat p { font-size: 9px; }
+  .sectionHeading { align-items: flex-start; flex-direction: column; gap: 14px; margin-top: 29px; }
+  .sectionHeading .segmented { align-self: flex-end; margin-top: -2px; }
+  .chartHeading { flex-direction: column; gap: 12px; }
+  .chartHeading .segmented { margin-left: 0; }
+  .chartHeading h3 { font-size: 23px; }
+  .trendPanel { padding: 21px 12px 15px; }
+  .mainChart { width: 100%; }
+  .axisLabel { font-size: 10px; }
+  .chartReadout { min-height: 48px; gap: 7px; padding: 9px; }
+  .chartReadout .readoutHint { display: none; }
+  .chartReadout strong { margin-left: 0; }
+  .legend { gap: 5px; }
+  .legend button { min-height: 34px; padding: 5px 7px; }
+  .mixPanel { grid-template-columns: 118px 1fr; gap: 0 15px; padding: 21px 16px 17px; }
+  .donutWrap { align-self: center; width: 118px; height: 118px; margin: 0; }
+  .donutWrap strong { font-size: 32px; }
+  .donutWrap span { font-size: 6px; }
+  .mixLegend { gap: 12px; margin: 23px 0 8px; }
+  .mixLegend li { gap: 6px; font-size: 9px; }
+  .mixLegend b { font-size: 9px; }
+  .mixLegend small { font-size: 7px; }
+  .mixNote { margin-top: 15px; }
+  .accountGrid { grid-template-columns: 1fr; }
+  .accountValue strong { font-size: 39px; }
+  .accountHeading p { max-width: 220px; }
+  .historyTable summary span { display: block; margin: 6px 0 0 14px; line-height: 1.5; }
+  .historyTable td, .historyTable th { padding: 10px 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segmented button, .chartSeries circle, .legend button, .accountCard { transition: none; }
+}

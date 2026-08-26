@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { mergeNewsletterTopics, normalizeNewsletterTitle, type NewsletterMentionRecord } from "./newsletter-intelligence";
-import type { NewsletterTopic } from "./types";
+import type { AiKeyProvider, NewsletterTopic } from "./types";
+import { newsletterPriority } from "./feed-priority";
 
 export type NewsletterIssueRecord = {
   messageId: string;
@@ -46,6 +47,9 @@ export function initializeNewsletterStore(database: DatabaseSync) {
       received_at TEXT NOT NULL,
       gmail_url TEXT NOT NULL,
       first_seen_at TEXT NOT NULL,
+      importance_score INTEGER,
+      importance_reason TEXT,
+      curation_mode TEXT,
       FOREIGN KEY (mailbox, issue_id) REFERENCES newsletter_issues(mailbox, message_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS newsletter_mentions_mailbox_received_idx
@@ -66,6 +70,12 @@ export function initializeNewsletterStore(database: DatabaseSync) {
     database.exec("ALTER TABLE newsletter_issues ADD COLUMN processor_version INTEGER NOT NULL DEFAULT 1;");
   if (!issueColumns.some((column) => column.name === "processor_scope"))
     database.exec("ALTER TABLE newsletter_issues ADD COLUMN processor_scope TEXT NOT NULL DEFAULT '';");
+  const mentionColumns = database.prepare("PRAGMA table_info(newsletter_mentions)")
+    .all() as unknown as Array<{ name: string }>;
+  for (const [name, type] of [["importance_score", "INTEGER"], ["importance_reason", "TEXT"], ["curation_mode", "TEXT"]]) {
+    if (!mentionColumns.some((column) => column.name === name))
+      database.exec(`ALTER TABLE newsletter_mentions ADD COLUMN ${name} ${type};`);
+  }
   return database;
 }
 
@@ -116,8 +126,8 @@ export function saveNewsletterIssue(
     INSERT INTO newsletter_mentions (
       mention_id, issue_id, mailbox, canonical_url, url, title, context,
       publisher, newsletter_sender, newsletter_subject, received_at,
-      gmail_url, first_seen_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      gmail_url, first_seen_at, importance_score, importance_reason, curation_mode
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (mention_id) DO UPDATE SET
       canonical_url = excluded.canonical_url,
       url = excluded.url,
@@ -127,7 +137,10 @@ export function saveNewsletterIssue(
       newsletter_sender = excluded.newsletter_sender,
       newsletter_subject = excluded.newsletter_subject,
       received_at = excluded.received_at,
-      gmail_url = excluded.gmail_url
+      gmail_url = excluded.gmail_url,
+      importance_score = excluded.importance_score,
+      importance_reason = excluded.importance_reason,
+      curation_mode = excluded.curation_mode
   `);
   database.exec("BEGIN IMMEDIATE");
   try {
@@ -160,6 +173,9 @@ export function saveNewsletterIssue(
         mention.receivedAt,
         mention.gmailUrl,
         mention.firstSeenAt,
+        mention.importanceScore ?? null,
+        mention.importanceReason || null,
+        mention.curationMode || null,
       );
     }
     database.exec("COMMIT");
@@ -177,7 +193,8 @@ export function listNewsletterMentions(
     SELECT mention.mention_id, mention.issue_id, mention.canonical_url,
       mention.url, mention.title, mention.context, mention.publisher,
       mention.newsletter_sender, mention.newsletter_subject, mention.received_at,
-      mention.gmail_url, mention.first_seen_at
+      mention.gmail_url, mention.first_seen_at, mention.importance_score,
+      mention.importance_reason, mention.curation_mode
     FROM newsletter_mentions mention
     JOIN newsletter_issues issue
       ON issue.mailbox = mention.mailbox AND issue.message_id = mention.issue_id
@@ -206,6 +223,9 @@ export function listNewsletterMentions(
     received_at: string;
     gmail_url: string;
     first_seen_at: string;
+    importance_score: number | null;
+    importance_reason: string | null;
+    curation_mode: "local" | AiKeyProvider | null;
   }>;
   return rows.map((row): NewsletterMentionRecord => ({
     id: row.mention_id,
@@ -220,6 +240,9 @@ export function listNewsletterMentions(
     receivedAt: row.received_at,
     gmailUrl: row.gmail_url,
     firstSeenAt: row.first_seen_at,
+    importanceScore: row.importance_score ?? undefined,
+    importanceReason: row.importance_reason || undefined,
+    curationMode: row.curation_mode || undefined,
   }));
 }
 
@@ -329,11 +352,20 @@ export function assignNewsletterTopicIdentities(
     if (!saved) return topic;
     try {
       const copy = JSON.parse(saved.payload_json) as Partial<NewsletterTopic>;
-      return {
+      return newsletterPriority({
         ...topic,
         title: typeof copy.title === "string" ? copy.title : topic.title,
         summary: typeof copy.summary === "string" ? copy.summary : topic.summary,
-      };
+        ...(typeof copy.importanceBaseScore === "number" && Number.isFinite(copy.importanceBaseScore) &&
+          copy.collectionScope === topic.collectionScope
+          ? {
+              importanceBaseScore: copy.importanceBaseScore,
+              importanceScore: copy.importanceScore,
+              importanceReason: copy.importanceReason,
+              curationMode: copy.curationMode,
+            }
+          : {}),
+      });
     } catch { return topic; }
   })
     .sort((left, right) => Date.parse(right.receivedAt) - Date.parse(left.receivedAt));

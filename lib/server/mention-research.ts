@@ -10,11 +10,12 @@ import {
 } from "@/lib/mention-work";
 import { parseAiJson, runConfiguredAi } from "@/lib/server/ai";
 import type { StoredSettings } from "@/lib/server/settings";
+import type { AiKeyProvider } from "@/lib/types";
 
 type CachedMentionResearch = {
   expiresAt: number;
   result: Promise<{
-    provider: "openai" | "anthropic" | "gemini";
+    provider: AiKeyProvider;
     urls: string[];
     totalIdentityCount: number;
     completedIdentityCount: number;
@@ -128,7 +129,7 @@ export async function researchMentionsWithAi(
   }).then((responses) => {
       const fulfilled = responses.filter(
         (response): response is PromiseFulfilledResult<{
-          provider: "openai" | "anthropic" | "gemini";
+          provider: AiKeyProvider;
           urls: string[];
         }> =>
           response.status === "fulfilled",

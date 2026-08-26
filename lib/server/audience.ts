@@ -30,6 +30,7 @@ import {
   sameHostRedirectSession,
 } from "@/lib/public-metrics";
 import { readBoundedResponseText } from "@/lib/sitemap";
+import { configuredAudienceHistory } from "@/lib/audience-charts";
 
 type Account = StoredSettings["audience"]["accounts"][number];
 type CollectedAccount = { total: number; handle: string; primaryLabel: AudiencePrimaryMetric; secondaryLabel?: string; secondaryValue?: number; source: string };
@@ -73,6 +74,10 @@ async function readSnapshots(): Promise<AudienceSnapshotHistory> {
       { cause: error },
     );
   }
+}
+
+export async function readAudienceHistory(settings: StoredSettings) {
+  return configuredAudienceHistory(settings.audience.accounts, await readSnapshots());
 }
 
 async function writeSnapshots(snapshots: AudienceSnapshotHistory) {

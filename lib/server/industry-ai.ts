@@ -7,6 +7,7 @@ import {
 } from "@/lib/industry-ai-cache";
 import { parseAiJson, runConfiguredAi } from "@/lib/server/ai";
 import type { StoredSettings } from "@/lib/server/settings";
+import type { AiKeyProvider } from "@/lib/types";
 
 export type AiIndustrySelection = {
   discoveryId: string;
@@ -17,7 +18,7 @@ export type AiIndustrySelection = {
 type CachedIndustrySelection = {
   expiresAt: number;
   result: Promise<{
-    provider: "openai" | "anthropic" | "gemini";
+    provider: AiKeyProvider;
     selections: AiIndustrySelection[];
   }>;
 };

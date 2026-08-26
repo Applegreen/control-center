@@ -27,9 +27,11 @@ import type { NewsletterFeedResponse, NewsletterTopic } from "@/lib/types";
 import { getGmailAccessToken, gmailJson } from "@/lib/server/gmail";
 import { getDatabase, syncContentItems } from "@/lib/server/database";
 import { resolvePublicRedirect } from "@/lib/server/safe-fetch";
-import { consolidateNewsletterTopicsWithAi, extractNewsletterStoriesWithAi } from "@/lib/server/newsletter-ai";
-import { configuredAiApiKey } from "@/lib/server/settings";
+import { consolidateNewsletterTopicsWithAi, extractNewsletterStoriesWithAi, prioritizeSavedNewsletterTopicsWithAi } from "@/lib/server/newsletter-ai";
+import { configuredAiReady } from "@/lib/server/settings";
 import type { readSettings } from "@/lib/server/settings";
+import { isLocalAiProvider } from "@/lib/ai-providers";
+import { newsletterPriority, sortFeedStories } from "@/lib/feed-priority";
 
 const MAX_MESSAGES = 500;
 const MAX_NEW_ISSUES_PER_PASS = 16;
@@ -65,7 +67,7 @@ declare global {
 }
 
 export function newsletterAiConfigured(settings: Settings) {
-  return settings.ai.provider !== "none" && Boolean(configuredAiApiKey(settings, settings.ai.provider));
+  return configuredAiReady(settings);
 }
 
 async function settleWithConcurrency<T, R>(
@@ -107,6 +109,7 @@ export function newsletterCollectionScope(settings: Settings) {
     settings.industry.description,
     ...settings.industry.keywords.map((term) => `topic:${term}`),
     ...settings.industry.excludedTerms.map((term) => `exclude:${term}`),
+    ...(isLocalAiProvider(settings.ai.provider) ? [settings.ai.localBaseUrls[settings.ai.provider]] : []),
   ]);
 }
 
@@ -194,6 +197,9 @@ function mentionsForIssue(
       receivedAt: issue.receivedAt,
       gmailUrl: issue.gmailUrl,
       firstSeenAt,
+      importanceScore: link.importanceScore,
+      importanceReason: link.importanceReason,
+      curationMode: link.curationMode,
     };
     return [`${canonicalUrl}\u0000${mention.title.toLowerCase()}`, mention] as const;
   }).filter(([key]) => key)).values()]
@@ -213,14 +219,14 @@ function topicLists(
     currentSweepOnly: true,
   });
   return {
-    active: saved.active.filter((item) => item.kind === "newsletter-topic"),
-    archived: saved.archived.filter((item) =>
+    active: sortFeedStories(saved.active.filter((item) => item.kind === "newsletter-topic").map(newsletterPriority)),
+    archived: sortFeedStories(saved.archived.filter((item) =>
       item.kind === "newsletter-topic" &&
-      item.workflow?.archiveReason === "user"),
-    history: saved.archived.filter((item) =>
+      item.workflow?.archiveReason === "user").map(newsletterPriority)),
+    history: sortFeedStories(saved.archived.filter((item) =>
       item.kind === "newsletter-topic" &&
       item.collectionScope === newsletterCollectionScope(settings) &&
-      item.workflow?.archiveReason === "expired"),
+      item.workflow?.archiveReason === "expired").map(newsletterPriority)),
   };
 }
 
@@ -310,6 +316,16 @@ async function runNewsletterCollection(settings: Settings): Promise<NewsletterFe
       topicErrors.push("Cross-newsletter AI consolidation was unavailable; exact-link and headline deduplication remain active. A later refresh will retry.");
     }
   }
+  if (topics.some((topic) => topic.importanceBaseScore === undefined)) {
+    const archived = database.prepare(
+      "SELECT external_id FROM content_items WHERE category = 'newsletters' AND archived_at IS NOT NULL",
+    ).all() as unknown as Array<{ external_id: string }>;
+    try {
+      topics = await prioritizeSavedNewsletterTopicsWithAi(settings, topics, new Set(archived.map((row) => row.external_id)));
+    } catch {
+      topicErrors.push("AI priority ranking was unavailable; saved stories are ordered by independent newsletter coverage and recency instead.");
+    }
+  }
   const lists = topicLists(topics, settings);
   const stats = newsletterStoreStats(database, {
     mailbox,
@@ -320,7 +336,7 @@ async function runNewsletterCollection(settings: Settings): Promise<NewsletterFe
   const failedMessages = messageResults.filter((result) => result.status === "rejected").length;
   const errors = [
     ...(failedMessages
-      ? [`${failedMessages} new Gmail issue${failedMessages === 1 ? " was" : "s were"} deferred because the message could not be read or analyzed. Check Gmail access and the selected AI key/model.`]
+      ? [`${failedMessages} new Gmail issue${failedMessages === 1 ? " was" : "s were"} deferred because the message could not be read or analyzed. Check Gmail access and the selected AI provider/model.`]
       : []),
     ...(redirectResult.failed
       ? [`${redirectResult.failed} tracked source link${redirectResult.failed === 1 ? " could" : "s could"} not be resolved; the original newsletter links were retained.`]
@@ -332,6 +348,8 @@ async function runNewsletterCollection(settings: Settings): Promise<NewsletterFe
     connected: true,
     aiConfigured: true,
     aiProvider: settings.ai.provider === "none" ? undefined : settings.ai.provider,
+    curationMode: lists.active.some((topic) => topic.curationMode && topic.curationMode !== "local")
+      ? settings.ai.provider === "none" ? "local" : settings.ai.provider : "local",
     checkedAt,
     items: lists.active,
     archivedItems: lists.archived,
@@ -384,6 +402,8 @@ export function readSavedNewsletterIntelligence(
     connected,
     aiConfigured: newsletterAiConfigured(settings),
     aiProvider: settings.ai.provider === "none" ? undefined : settings.ai.provider,
+    curationMode: lists.active.some((topic) => topic.curationMode && topic.curationMode !== "local")
+      ? settings.ai.provider === "none" ? "local" : settings.ai.provider : "local",
     checkedAt,
     items: lists.active,
     archivedItems: lists.archived,

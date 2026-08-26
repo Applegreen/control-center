@@ -2,12 +2,14 @@
 
 Control Center cannot inherit private Codex connectors from a different user's installation. Instead, it exposes a provider-neutral localhost endpoint so a user-approved Codex automation, script, or local tool can send a minimized daily overview.
 
+This bridge is optional and separate from the daily snapshot of Industry, Mentions, and Newsletters. Source labels identify incoming summaries; adding a label does not connect an account or grant permissions.
+
 ## Setup
 
 1. Run Control Center and open **Settings → Integrations**.
 2. Add the exact source labels the automation will use, such as `Gmail`, `Slack`, `Granola`, `Google Calendar`, `Apple Messages`, or `Computer History`.
 3. Save Settings.
-4. Choose **Copy bridge prompt** and paste it into Codex, or use the JSON contract below from another local automation.
+4. Choose **Copy setup prompt** and paste it into Codex, or use the JSON contract below from another local automation.
 
 The generated prompt requires read-only connector access and asks the automation to report failures instead of returning an invented empty success.
 

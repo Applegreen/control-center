@@ -44,7 +44,7 @@ export async function GET(request: Request) {
         ...(!connected && saved.configured
           ? ["Gmail is disconnected. Saved newsletter intelligence remains available locally."] : []),
         ...(connected && !aiConfigured
-          ? ["Newsletter intelligence requires a selected OpenAI, Anthropic, or Gemini provider and API key in Settings → AI curation."] : []),
+          ? ["Newsletter intelligence requires a configured AI provider in Settings → AI curation. Choose a cloud provider with an API key or a running local model."] : []),
       ],
     }, "saved-fallback");
   }

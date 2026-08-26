@@ -64,6 +64,10 @@ import type {
   WorkspaceState,
   WorkspaceStateResponse,
 } from "@/lib/types";
+import {
+  GOOGLE_OAUTH_CLIENT_ID_ERROR,
+  isGoogleOAuthClientId,
+} from "@/lib/google-oauth";
 import { isDailyBriefItemInWindow } from "@/lib/brief-window";
 import {
   AUDIENCE_COMPARISON_WINDOW_LABEL,
@@ -73,6 +77,10 @@ import {
 import { modelOverrideAfterProviderChange } from "@/lib/ai-settings";
 import { sortIndustryItems, type IndustrySortOrder } from "@/lib/industry";
 import { completeTaskItems } from "@/lib/tasks";
+import {
+  applyArchiveToPayload,
+  type CachedFeedPayload,
+} from "@/lib/live-response";
 
 type Tab =
   | "today"
@@ -323,13 +331,20 @@ function ErrorNotice({ errors }: { errors: string[] }) {
   );
 }
 
+const liveDataCache = new Map<string, unknown>();
+
+function clearLiveDataCache() {
+  liveDataCache.clear();
+}
+
 function useLiveData<T>(
   endpoint: string,
   refreshEveryMs = 15 * 60 * 1000,
   manualEndpoint = endpoint,
 ) {
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
+  const initialData = liveDataCache.get(endpoint) as T | undefined;
+  const [data, setData] = useState<T | null>(initialData || null);
+  const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState("");
   const [nonce, setNonce] = useState(0);
   useEffect(() => {
@@ -345,6 +360,7 @@ function useLiveData<T>(
           );
         if (!cancelled) {
           setData(payload as T);
+          liveDataCache.set(endpoint, payload as T);
           setError("");
         }
       } catch (requestError) {
@@ -358,9 +374,10 @@ function useLiveData<T>(
         if (!cancelled) setLoading(false);
       }
     };
-    void load(nonce > 0 ? manualEndpoint : endpoint);
+    if (nonce > 0) void load(manualEndpoint);
+    else void load(endpoint);
     const interval = window.setInterval(
-      () => void load(endpoint),
+      () => void load(manualEndpoint),
       refreshEveryMs,
     );
     return () => {
@@ -373,6 +390,13 @@ function useLiveData<T>(
     loading,
     error,
     refresh: () => setNonce((value) => value + 1),
+    mutate: (updater: (current: T) => T) =>
+      setData((current) => {
+        if (!current) return current;
+        const next = updater(current);
+        liveDataCache.set(endpoint, next);
+        return next;
+      }),
   };
 }
 
@@ -399,9 +423,9 @@ function LiveLoadError({ error, retry }: { error: string; retry: () => void }) {
   );
 }
 
-function useArchiveAction(
+function useArchiveAction<T extends CachedFeedPayload>(
   category: "industry" | "mentions" | "newsletters",
-  refresh: () => void,
+  mutate: (updater: (current: T) => T) => void,
 ) {
   const [pending, setPending] = useState("");
   const [error, setError] = useState("");
@@ -417,7 +441,7 @@ function useArchiveAction(
       const payload = await response.json();
       if (!response.ok)
         throw new Error(payload.error || "Could not update the archive.");
-      refresh();
+      mutate((current) => applyArchiveToPayload(current, id, archived));
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -619,6 +643,11 @@ function DailyBriefPanel({
   );
 }
 
+function newsletterSetupReady(settings: PublicSettings) {
+  return settings.newsletters.connected && settings.ai.provider !== "none" &&
+    settings.ai.keySet[settings.ai.provider];
+}
+
 function TodayView({
   settings,
   tasks,
@@ -638,7 +667,7 @@ function TodayView({
   const configured = [
     industryConfigured,
     settings.mentions.terms.length + settings.mentions.websites.length > 0,
-    settings.newsletters.connected,
+    newsletterSetupReady(settings),
     settings.audience.accounts.length > 0,
   ].filter(Boolean).length;
   const today = new Intl.DateTimeFormat(undefined, {
@@ -675,7 +704,7 @@ function TodayView({
           ) : (
             <>
               <strong>{configured} of 4 live areas are configured.</strong> Open
-              any tracked page to refresh its read-only data now.
+              a tracked page for saved results, or use Refresh to check now.
             </>
           )}
         </p>
@@ -780,16 +809,18 @@ function TodayView({
             </button>
             <button
               onClick={() => openSettings("newsletters")}
-              className={settings.newsletters.connected ? "complete" : ""}
+              className={newsletterSetupReady(settings) ? "complete" : ""}
             >
               <span>
-                {settings.newsletters.connected ? <Check /> : <Mail />}
+                {newsletterSetupReady(settings) ? <Check /> : <Mail />}
               </span>
               <div>
                 <b>Newsletters</b>
                 <small>
                   {settings.newsletters.connected
-                    ? settings.newsletters.connectedEmail
+                    ? newsletterSetupReady(settings)
+                      ? settings.newsletters.connectedEmail
+                      : "Add an AI key to finish setup"
                     : "Connect a Gmail account (optional)"}
                 </small>
               </div>
@@ -836,12 +867,15 @@ function IndustryView({
   saveStory: (story: LiveStory) => void;
   openSettings: () => void;
 }) {
-  const { data, loading, error, refresh } =
-    useLiveData<LiveFeedResponse>("/api/live/industry");
+  const { data, loading, error, refresh, mutate } = useLiveData<LiveFeedResponse>(
+    "/api/live/industry",
+    15 * 60 * 1000,
+    "/api/live/industry?refresh=1",
+  );
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"active" | "history" | "archive">("active");
   const [sortOrder, setSortOrder] = useState<IndustrySortOrder>("important");
-  const archive = useArchiveAction("industry", refresh);
+  const archive = useArchiveAction<LiveFeedResponse>("industry", mutate);
   const sourceItems =
     view === "archive"
       ? data?.archivedItems || []
@@ -1097,11 +1131,20 @@ function IndustryView({
   );
 }
 
-function MentionsView({ openSettings }: { openSettings: () => void }) {
-  const { data, loading, error, refresh } =
-    useLiveData<LiveFeedResponse>("/api/live/mentions");
+function MentionsView({
+  saveStory,
+  openSettings,
+}: {
+  saveStory: (story: LiveStory) => void;
+  openSettings: () => void;
+}) {
+  const { data, loading, error, refresh, mutate } = useLiveData<LiveFeedResponse>(
+    "/api/live/mentions",
+    15 * 60 * 1000,
+    "/api/live/mentions?refresh=1",
+  );
   const [view, setView] = useState<"active" | "archive">("active");
-  const archive = useArchiveAction("mentions", refresh);
+  const archive = useArchiveAction<LiveFeedResponse>("mentions", mutate);
   const items =
     view === "archive" ? data?.archivedItems || [] : data?.items || [];
   const highConfidenceCount = (data?.items || []).filter(
@@ -1239,6 +1282,14 @@ function MentionsView({ openSettings }: { openSettings: () => void }) {
                   </div>
                 </div>
                 <div className="mention-actions">
+                  {view === "active" && (
+                    <button
+                      title="Save to reminders"
+                      onClick={() => saveStory(item)}
+                    >
+                      <Bookmark size={16} />
+                    </button>
+                  )}
                   <a
                     className="round-link"
                     href={item.url}
@@ -1650,30 +1701,40 @@ function AudienceView({ openSettings }: { openSettings: () => void }) {
 function NewslettersView({
   addReminder,
   openSettings,
+  openAiSettings,
 }: {
   addReminder: (title: string, note: string, url?: string) => void;
   openSettings: () => void;
+  openAiSettings: () => void;
 }) {
-  const { data, loading, error, refresh } = useLiveData<NewsletterFeedResponse>(
+  const { data, loading, error, refresh, mutate } = useLiveData<NewsletterFeedResponse>(
     "/api/live/newsletters",
+    15 * 60 * 1000,
+    "/api/live/newsletters?refresh=1",
   );
-  const [view, setView] = useState<"active" | "archive">("active");
-  const archive = useArchiveAction("newsletters", refresh);
-  const items =
-    view === "archive" ? data?.archivedItems || [] : data?.items || [];
+  const [view, setView] = useState<"active" | "archive" | "history">("active");
+  const archive = useArchiveAction<NewsletterFeedResponse>(
+    "newsletters",
+    mutate,
+  );
+  const items = view === "archive"
+    ? data?.archivedItems || []
+    : view === "history"
+      ? data?.historyItems || []
+      : data?.items || [];
   return (
     <div className="view newsletter-view">
       <PageHeading
-        eyebrow="Connected mailbox"
+        eyebrow="Newsletter intelligence"
         title="Newsletters"
-        description="A separately authorized Gmail inbox for the newsletters you choose to receive."
+        description="AI reads your newsletters, extracts the actual news, and combines repeated coverage into source-backed stories."
         action={
           <button
             className="button button-primary"
             onClick={refresh}
             disabled={loading}
           >
-            <RefreshCw size={15} /> Check inbox
+            <RefreshCw size={15} /> Refresh intelligence
           </button>
         }
       />
@@ -1688,6 +1749,13 @@ function NewslettersView({
           description="This can be a completely different account from any Gmail connected elsewhere. The dashboard requests read-only access."
           onSetup={openSettings}
         />
+      ) : data.aiConfigured === false && !data.items.length && !data.historyItems?.length ? (
+        <SetupEmpty
+          icon={<Sparkles />}
+          title="Add an AI key for newsletter intelligence"
+          description="Choose OpenAI, Anthropic, or Gemini in AI curation. Newsletter text will be sent to only that provider to extract and deduplicate news. Gmail remains read-only."
+          onSetup={openAiSettings}
+        />
       ) : (
         <>
           <div className="newsletter-status reveal delay-1">
@@ -1697,12 +1765,12 @@ function NewslettersView({
             <div>
               <b>
                 {data.connected
-                  ? "Live Gmail connection"
-                  : "Saved newsletter library"}
+                  ? `${data.items.length} active stories from ${data.issueCount || 0} newsletter issues`
+                  : "Saved newsletter intelligence"}
               </b>
               <p>
-                {data.items.length} active newsletter messages · checked{" "}
-                {formatDate(data.checkedAt)}
+                {data.newsletterCount || 0} newsletters · {data.mentionCount || 0} source mentions · {data.aiProvider || "AI"} · checked {formatDate(data.checkedAt)}
+                {data.pendingIssueCount ? ` · ${data.pendingIssueCount} older issues queued for background processing` : ""}
                 {!data.connected ? " · Gmail disconnected" : ""}
               </p>
             </div>
@@ -1716,7 +1784,13 @@ function NewslettersView({
                 className={view === "active" ? "active" : ""}
                 onClick={() => setView("active")}
               >
-                Active {data.items.length}
+                Past {data.freshnessHours || 36} hours {data.items.length}
+              </button>
+              <button
+                className={view === "history" ? "active" : ""}
+                onClick={() => setView("history")}
+              >
+                Earlier {data.historyCount || 0}
               </button>
               <button
                 className={view === "archive" ? "active" : ""}
@@ -1737,37 +1811,77 @@ function NewslettersView({
             {items.map((item) => (
               <article className="newsletter-card" key={item.id}>
                 <div className="sender-mark">
-                  {item.sender[0]?.toUpperCase() || "N"}
+                  {item.title[0]?.toUpperCase() || "N"}
                 </div>
                 <div className="newsletter-copy">
                   <div className="story-meta">
-                    <span>{item.sender}</span>
+                    <span>
+                      {item.coverageCount} report{item.coverageCount === 1 ? "" : "s"}
+                    </span>
+                    <i />
+                    <span>
+                      {item.newsletterCount} newsletter{item.newsletterCount === 1 ? "" : "s"}
+                    </span>
                     <i />
                     <span>{formatDate(item.receivedAt)}</span>
-                    <Label tone="positive">Saved locally</Label>
+                    <Label tone={item.coverageCount > 1 ? "positive" : "neutral"}>
+                      {item.coverageCount > 1 ? "Cross-reported" : "New story"}
+                    </Label>
                   </div>
-                  <h3>{item.subject}</h3>
-                  <p>{item.snippet}</p>
+                  <h3>{item.title}</h3>
+                  <p>{item.summary}</p>
+                  <div className="newsletter-sources">
+                    {item.sourceLinks.slice(0, 4).map((source) => (
+                      <a
+                        key={source.url}
+                        href={source.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={source.title}
+                      >
+                        <ExternalLink size={12} /> {source.publisher}
+                      </a>
+                    ))}
+                    {item.sourceLinks.length > 4 && (
+                      <details>
+                        <summary>+{item.sourceLinks.length - 4} more sources</summary>
+                        {item.sourceLinks.slice(4).map((source) => (
+                          <a key={source.url} href={source.url} target="_blank" rel="noreferrer" title={source.title}>
+                            <ExternalLink size={12} /> {source.publisher}
+                          </a>
+                        ))}
+                      </details>
+                    )}
+                  </div>
+                  <div className="newsletter-byline">
+                    Reported by {item.newsletterSources.slice(0, 4).join(", ")}
+                    {item.newsletterSources.length > 4
+                      ? ` +${item.newsletterSources.length - 4} more`
+                      : ""}
+                  </div>
                   <div className="newsletter-foot">
-                    {view === "active" && (
+                    {view !== "archive" && (
                       <button
                         onClick={() =>
                           addReminder(
-                            item.subject,
-                            `From ${item.sender}`,
-                            item.gmailUrl,
+                            item.title,
+                            item.summary,
+                            item.url,
                           )
                         }
                       >
                         <Bookmark size={14} /> Remind me
                       </button>
                     )}
+                    <a href={item.url} target="_blank" rel="noreferrer">
+                      <ExternalLink size={14} /> Open source
+                    </a>
                     <a href={item.gmailUrl} target="_blank" rel="noreferrer">
-                      <ExternalLink size={14} /> Open in Gmail
+                      <Mail size={14} /> Newsletter evidence
                     </a>
                   </div>
                 </div>
-                <button
+                {(view === "active" || (view === "archive" && item.workflow?.restoreEligible)) && <button
                   className="mark-read"
                   title={view === "archive" ? "Restore" : "Archive"}
                   disabled={archive.pending === item.id}
@@ -1780,7 +1894,7 @@ function NewslettersView({
                   ) : (
                     <Archive size={16} />
                   )}
-                </button>
+                </button>}
               </article>
             ))}
             {!items.length && (
@@ -1788,13 +1902,17 @@ function NewslettersView({
                 <CheckCircle2 size={28} />
                 <h2>
                   {view === "archive"
-                    ? "No archived newsletters"
-                    : "You’re all caught up"}
+                    ? "No archived newsletter stories"
+                    : view === "history"
+                      ? "No earlier stories yet"
+                      : "You’re all caught up"}
                 </h2>
                 <p>
                   {view === "archive"
-                    ? "Archived newsletter messages remain stored locally without changing Gmail."
-                    : "No recent newsletter messages remain in the active queue."}
+                    ? "Archived stories remain stored locally without changing Gmail."
+                    : view === "history"
+                      ? "Stories outside the current reading window remain here as the mailbox backfill is processed."
+                      : "No extracted newsletter stories remain in the active queue."}
                 </p>
               </Panel>
             )}
@@ -2177,6 +2295,8 @@ function SettingsView({
         setNotice(
           "Save a Google OAuth client ID and secret before choosing an account.",
         );
+      if (oauthError === "oauth-client-id")
+        setNotice(GOOGLE_OAUTH_CLIENT_ID_ERROR);
       if (oauthError === "oauth-state")
         setNotice(
           "The Google connection expired before it completed. Please try again.",
@@ -2224,6 +2344,10 @@ function SettingsView({
         !draft.newsletters.googleClientSecret?.trim())
     ) {
       setNotice("Add the Google OAuth client ID and secret first.");
+      return;
+    }
+    if (!isGoogleOAuthClientId(draft.newsletters.googleClientId)) {
+      setNotice(GOOGLE_OAUTH_CLIENT_ID_ERROR);
       return;
     }
     if (await save()) router.push("/api/auth/google/start");
@@ -2685,6 +2809,8 @@ function SettingsView({
                   <p>
                     Connect any Google account, including one created only for
                     newsletter subscriptions. Gmail access stays read-only.
+                    Newsletter intelligence also requires an AI key in AI curation;
+                    issue text is sent only to that selected provider.
                   </p>
                 </div>
               </div>
@@ -2739,6 +2865,11 @@ function SettingsView({
                     </small>
                   </label>
                   <input
+                    aria-label="Google OAuth client ID"
+                    autoCapitalize="none"
+                    autoComplete="off"
+                    name="google-oauth-client-id"
+                    spellCheck={false}
                     value={draft.newsletters.googleClientId}
                     onChange={(event) =>
                       setDraft((value) => ({
@@ -2762,6 +2893,9 @@ function SettingsView({
                     </small>
                   </label>
                   <input
+                    aria-label="Google OAuth client secret"
+                    autoComplete="new-password"
+                    name="google-oauth-client-secret"
                     type="password"
                     value={draft.newsletters.googleClientSecret || ""}
                     onChange={(event) =>
@@ -3103,12 +3237,13 @@ function SettingsView({
               <div className="settings-title">
                 <Sparkles />
                 <div>
-                  <p className="eyebrow">Optional background intelligence</p>
+                  <p className="eyebrow">Background intelligence</p>
                   <h2>AI curation and web research</h2>
                   <p>
                     Pick one provider to semantically rank Industry discoveries
-                    and search more of the public web for Mentions. With AI off,
-                    the app still uses its local ranking and news collectors.
+                    and search more of the public web for Mentions. An AI key is
+                    required for newsletter story extraction and deduplication.
+                    With AI off, Industry and Mentions retain their local collectors.
                   </p>
                 </div>
               </div>
@@ -3253,8 +3388,11 @@ function SettingsView({
                 <p>
                   Keys stay server-side in the private Control Center data
                   directory and are never returned to browser code. Provider
-                  usage may incur charges; collection falls back to local logic
-                  whenever the selected provider is unavailable.
+                  usage may incur charges. Connected newsletter text is sent to
+                  this provider; subscriber tracking URLs and email addresses are
+                  masked. Newsletter processing pauses on provider failure while
+                  saved stories remain available. Other private connector, task,
+                  and reminder content is not sent.
                 </p>
               </div>
             </Panel>
@@ -3593,7 +3731,7 @@ export function ControlCenter() {
   const configuredCount = [
     settings.industry.sources.length + settings.industry.keywords.length,
     settings.mentions.terms.length + settings.mentions.websites.length,
-    settings.newsletters.connected ? 1 : 0,
+    newsletterSetupReady(settings) ? 1 : 0,
     settings.audience.accounts.length,
   ].filter(Boolean).length;
   const current = useMemo(
@@ -3731,7 +3869,12 @@ export function ControlCenter() {
           />
         )}{" "}
         {activeTab === "mentions" && (
-          <MentionsView openSettings={() => openSettings("mentions")} />
+          <MentionsView
+            saveStory={(story) =>
+              addReminder(story.title, story.summary, story.url)
+            }
+            openSettings={() => openSettings("mentions")}
+          />
         )}{" "}
         {activeTab === "reminders" && (
           <RemindersView
@@ -3760,13 +3903,20 @@ export function ControlCenter() {
           <NewslettersView
             addReminder={addReminder}
             openSettings={() => openSettings("newsletters")}
+            openAiSettings={() => openSettings("ai")}
           />
         )}{" "}
         {activeTab === "tasks" && (
           <TasksView tasks={tasks} setTasks={setTasks} />
         )}{" "}
         {activeTab === "settings" && (
-          <SettingsView settings={settings} onSaved={setSettings} />
+          <SettingsView
+            settings={settings}
+            onSaved={(saved) => {
+              clearLiveDataCache();
+              setSettings(saved);
+            }}
+          />
         )}
       </main>
       <footer>

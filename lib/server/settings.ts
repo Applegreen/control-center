@@ -19,6 +19,10 @@ import type {
   SettingsUpdate,
 } from "@/lib/types";
 import {
+  GOOGLE_OAUTH_CLIENT_ID_ERROR,
+  isGoogleOAuthClientId,
+} from "@/lib/google-oauth";
+import {
   assertMentionIdentityLimit,
   cleanBoundedMentionValues,
   MAX_MENTION_CONTEXT_VALUES,
@@ -388,6 +392,9 @@ export async function updateSettings(update: SettingsUpdate) {
       "Mention excluded contexts",
       MAX_MENTION_CONTEXT_VALUES,
     );
+    const googleClientId = update.newsletters.googleClientId.trim();
+    if (googleClientId && !isGoogleOAuthClientId(googleClientId))
+      throw new Error(GOOGLE_OAUTH_CLIENT_ID_ERROR);
     const next: StoredSettings = {
       general: {
         workspaceName:
@@ -416,7 +423,7 @@ export async function updateSettings(update: SettingsUpdate) {
       },
       newsletters: {
         ...current.newsletters,
-        googleClientId: update.newsletters.googleClientId.trim(),
+        googleClientId,
         googleClientSecret:
           update.newsletters.googleClientSecret?.trim() ||
           current.newsletters.googleClientSecret,

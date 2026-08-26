@@ -1,130 +1,95 @@
-import type { NewsletterFeedResponse, NewsletterItem } from "@/lib/types";
-import { getGmailAccessToken, gmailJson } from "@/lib/server/gmail";
+import type { NewsletterFeedResponse } from "@/lib/types";
+import { normalizeNewsletterResponse } from "@/lib/newsletter-intelligence";
+import {
+  readCollectorSnapshot,
+  writeCollectorSnapshot,
+} from "@/lib/collector-cache";
+import { getDatabase } from "@/lib/server/database";
+import {
+  collectNewsletterIntelligence,
+  newsletterAiConfigured,
+  newsletterCollectionScope,
+  readSavedNewsletterIntelligence,
+} from "@/lib/server/newsletter-collector";
 import { readSettings } from "@/lib/server/settings";
-import { syncContentItems } from "@/lib/server/database";
 
 export const runtime = "nodejs";
 
-type GmailList = { messages?: Array<{ id: string }>; nextPageToken?: string };
-type GmailMessage = {
-  id: string;
-  internalDate?: string;
-  snippet?: string;
-  payload?: { headers?: Array<{ name: string; value: string }> };
-};
-
-async function settleWithConcurrency<T, R>(
-  values: T[],
-  limit: number,
-  operation: (value: T) => Promise<R>,
+function json(
+  payload: NewsletterFeedResponse,
+  cacheState: "hit" | "refresh" | "saved-fallback",
 ) {
-  const results = new Array<PromiseSettledResult<R>>(values.length);
-  let nextIndex = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(limit, values.length) }, async () => {
-      while (nextIndex < values.length) {
-        const index = nextIndex++;
-        try {
-          results[index] = {
-            status: "fulfilled",
-            value: await operation(values[index]),
-          };
-        } catch (reason) {
-          results[index] = { status: "rejected", reason };
-        }
-      }
-    }),
-  );
-  return results;
+  return Response.json(normalizeNewsletterResponse(payload), {
+    headers: { "X-Control-Center-Cache": cacheState },
+  });
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const settings = await readSettings();
-  if (!settings.newsletters.refreshToken) {
-    const saved = syncContentItems<NewsletterItem>("newsletters", []);
-    const hasSavedLibrary = saved.active.length + saved.archived.length > 0;
-    return Response.json({
-      configured: hasSavedLibrary,
-      connected: false,
-      checkedAt: new Date().toISOString(),
-      items: saved.active.slice(0, 100),
-      archivedItems: saved.archived,
-      archiveCount: saved.archived.length,
-      errors: hasSavedLibrary
-        ? [
-            "Gmail is disconnected. Saved newsletter items remain available locally.",
-          ]
-        : [],
-    } satisfies NewsletterFeedResponse);
-  }
-  try {
-    const token = await getGmailAccessToken();
-    const query = encodeURIComponent(settings.newsletters.gmailQuery);
-    const messageIds: string[] = [];
-    let pageToken = "";
-    for (let page = 0; page < 5; page += 1) {
-      const list = await gmailJson<GmailList>(
-        `/messages?maxResults=100&q=${query}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`,
-        token,
-      );
-      messageIds.push(...(list.messages || []).map(({ id }) => id));
-      pageToken = list.nextPageToken || "";
-      if (!pageToken) break;
-    }
-    const messageResults = await settleWithConcurrency(messageIds, 10, (id) =>
-      gmailJson<GmailMessage>(
-        `/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=List-Unsubscribe`,
-        token,
-      ),
-    );
-    const messages = messageResults.flatMap((result) =>
-      result.status === "fulfilled" ? [result.value] : [],
-    );
-    const errors = messageResults.some((result) => result.status === "rejected")
-      ? [
-          `${messageResults.filter((result) => result.status === "rejected").length} Gmail message${messageResults.filter((result) => result.status === "rejected").length === 1 ? " was" : "s were"} skipped because metadata could not be read.`,
-        ]
-      : [];
-    const items: NewsletterItem[] = messages.map((message) => {
-      const headers = new Map(
-        (message.payload?.headers || []).map((header) => [
-          header.name.toLowerCase(),
-          header.value,
-        ]),
-      );
-      return {
-        id: `${settings.newsletters.connectedEmail}:${message.id}`,
-        sender: headers.get("from") || "Unknown sender",
-        subject: headers.get("subject") || "Untitled newsletter",
-        snippet: message.snippet || "",
-        receivedAt: new Date(
-          Number(message.internalDate || Date.now()),
-        ).toISOString(),
-        gmailUrl: `https://mail.google.com/mail/u/${encodeURIComponent(settings.newsletters.connectedEmail)}/#all/${message.id}`,
-      };
-    });
-    const saved = syncContentItems<NewsletterItem>("newsletters", items);
-    return Response.json({
-      configured: true,
-      connected: true,
-      checkedAt: new Date().toISOString(),
-      items: saved.active.slice(0, 100),
-      archivedItems: saved.archived,
-      archiveCount: saved.archived.length,
-      errors,
-    } satisfies NewsletterFeedResponse);
-  } catch (error) {
-    const saved = syncContentItems<NewsletterItem>("newsletters", []);
-    return Response.json({
-      configured: true,
-      connected: true,
-      checkedAt: new Date().toISOString(),
-      items: saved.active.slice(0, 100),
-      archivedItems: saved.archived,
-      archiveCount: saved.archived.length,
+  const database = getDatabase();
+  const connected = Boolean(settings.newsletters.refreshToken);
+  const aiConfigured = newsletterAiConfigured(settings);
+  const scope = newsletterCollectionScope(settings);
+  const refresh = new URL(request.url).searchParams.get("refresh") === "1";
+
+  if (!connected || !aiConfigured) {
+    const saved = readCollectorSnapshot<NewsletterFeedResponse>(database, "newsletters")?.payload ||
+      readSavedNewsletterIntelligence(settings, connected);
+    return json({
+      ...saved,
+      configured: connected || saved.configured,
+      connected,
+      aiConfigured,
       errors: [
+        ...(!connected && saved.configured
+          ? ["Gmail is disconnected. Saved newsletter intelligence remains available locally."] : []),
+        ...(connected && !aiConfigured
+          ? ["Newsletter intelligence requires a selected OpenAI, Anthropic, or Gemini provider and API key in Settings → AI curation."] : []),
+      ],
+    }, "saved-fallback");
+  }
+
+  if (!refresh) {
+    const cached = readCollectorSnapshot<NewsletterFeedResponse>(
+      database,
+      "newsletters",
+      scope,
+    );
+    if (cached) {
+      return json({
+        ...cached.payload,
+        connected,
+        aiConfigured,
+      }, "hit");
+    }
+  }
+
+  try {
+    const payload = await collectNewsletterIntelligence(settings);
+    const saved = writeCollectorSnapshot(
+      database,
+      "newsletters",
+      scope,
+      payload,
+      payload.checkedAt,
+    );
+    return json(saved, "refresh");
+  } catch (error) {
+    const payload = readSavedNewsletterIntelligence(settings, true);
+    const fallback = {
+      ...payload,
+      configured: true,
+      errors: [
+        ...(payload.errors || []),
         error instanceof Error ? error.message : "Newsletter sync failed",
       ],
-    } satisfies NewsletterFeedResponse);
+    };
+    return json(writeCollectorSnapshot(
+      database,
+      "newsletters",
+      scope,
+      fallback,
+      fallback.checkedAt,
+    ), "saved-fallback");
   }
 }

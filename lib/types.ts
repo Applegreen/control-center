@@ -152,11 +152,21 @@ export type LiveFeedResponse = {
 export type NewsletterFeedResponse = {
   configured: boolean;
   connected: boolean;
+  aiConfigured?: boolean;
+  aiProvider?: AiKeyProvider;
   checkedAt: string;
-  items: NewsletterItem[];
-  archivedItems: NewsletterItem[];
+  items: NewsletterTopic[];
+  archivedItems: NewsletterTopic[];
   archiveCount: number;
+  historyItems?: NewsletterTopic[];
+  historyCount?: number;
+  freshnessHours?: number;
   errors: string[];
+  issueCount?: number;
+  mentionCount?: number;
+  newsletterCount?: number;
+  newIssueCount?: number;
+  pendingIssueCount?: number;
 };
 
 export type AudiencePrimaryMetric = "followers" | "subscribers" | "page likes";
@@ -186,6 +196,29 @@ export type NewsletterItem = {
   snippet: string;
   receivedAt: string;
   gmailUrl: string;
+  workflow?: ContentWorkflow;
+};
+
+export type NewsletterSourceLink = {
+  url: string;
+  title: string;
+  publisher: string;
+};
+
+export type NewsletterTopic = {
+  id: string;
+  kind: "newsletter-topic";
+  title: string;
+  summary: string;
+  receivedAt: string;
+  url: string;
+  gmailUrl: string;
+  coverageCount: number;
+  newsletterCount: number;
+  newsletterSources: string[];
+  evidenceIssueIds?: string[];
+  sourceLinks: NewsletterSourceLink[];
+  collectionScope: string;
   workflow?: ContentWorkflow;
 };
 

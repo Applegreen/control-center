@@ -34,10 +34,10 @@ The Today page shows the four live areas and links directly to the right Setting
 1. **Industry:** add any public homepage, RSS/Atom feed, and optional topic phrases.
 2. **Mentions:** add exact names, brands, handles, official domains, distinguishing identity anchors, and known false-positive contexts.
 3. **Audience:** add exact public profile URLs or handles for the platforms you use.
-4. **Newsletters (optional):** connect any Gmail account with a read-only OAuth client and choose the Gmail search query.
+4. **Newsletters (optional):** connect any Gmail account with a read-only OAuth client, choose the Gmail search query, and add an AI key under AI curation.
 5. **AI curation (optional):** select OpenAI, Anthropic, or Gemini and save that provider&apos;s key for semantic Industry curation and broader Mention research.
 
-Collectors run shortly after startup, every 15 minutes while the app remains open, whenever a live page is opened, and when **Refresh** is pressed.
+Collectors run shortly after startup, every 15 minutes while the app remains open, and when **Refresh** is pressed. Industry, Mentions, and Newsletters open from their last saved collector snapshot, so moving between tabs does not repeat public web or Gmail collection.
 
 ## Industry collection
 
@@ -70,6 +70,8 @@ Strict mode requires identity evidence:
 
 Canonical story identities are stored locally. Once a result is archived, later scans do not resurface the same story through a search-provider wrapper or tracking URL.
 
+Industry and Mention archive actions update the local library and saved collector snapshot together. The card moves immediately without waiting for a new source scan. Mention cards can also be sent directly to Reminders.
+
 Public search is useful discovery, not complete web coverage. Pages that block signed-out verification are rejected instead of being presented as certain mentions. Facebook posts are intentionally excluded from broad research because the app cannot reliably verify exact public-post text without an official connection.
 
 ## Audience tracking
@@ -84,12 +86,13 @@ Follower and subscriber growth is measured against the newest comparable sample 
 
 ## Optional AI curation
 
-No AI key is required for installation or for the local Industry, news Mention, sitemap, RSS, Audience, Newsletter, Task, or Reminder features. Under **Settings → AI curation**, a user can explicitly choose OpenAI, Anthropic, or Gemini, optionally override the model, and save only that provider&apos;s key.
+No AI key is required for installation or for the local Industry, news Mention, sitemap, RSS, Audience, Task, or Reminder features. **Newsletter intelligence requires an AI key.** Under **Settings → AI curation**, a user can explicitly choose OpenAI, Anthropic, or Gemini, optionally override the model, and save only that provider&apos;s key.
 
-The selected provider is used for two bounded background jobs:
+The selected provider is used for bounded background jobs:
 
 - semantic reranking of already-discovered Industry candidates, with a deterministic local fallback and the same daily cap;
-- cached broad-web Mention discovery, followed by independent direct-page verification inside Control Center.
+- cached broad-web Mention discovery, followed by independent direct-page verification inside Control Center;
+- newsletter story extraction and cross-newsletter deduplication, using only the separately connected mailbox's matching issues.
 
 Keys can instead be supplied as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GEMINI_API_KEY` in `.env.local`. Environment keys are still inert until the matching provider is selected in Settings. Provider calls can incur usage charges. Saved keys remain in the local server-side settings file, never return through the Settings API, and are not sent to any unselected provider.
 
@@ -101,13 +104,17 @@ Completing a repeating task records a dated, immutable occurrence in Completed a
 
 The newsletter mailbox can be completely separate from any Gmail account used elsewhere.
 
+The Newsletters page is an intelligence queue rather than an inbox mirror. On a refresh, Control Center reads previously unseen matching Gmail issues and asks the selected AI provider to extract substantive news—not every hyperlink. Navigation, polls, ads, stock tickers, author profiles, and housekeeping are excluded. Safe public tracking redirects, canonical URLs, headline matching, and AI event consolidation group repeat coverage into one story. Each topic shows how many issues and newsletters covered it, links to the original sources, and a Gmail evidence link. Persistent topic aliases keep archive state stable when later newsletters repeat a story.
+
+The active reading queue covers the latest 36 hours; **Earlier** keeps older extracted topics available, and **Archive** contains only stories you manually archived. The first backfill is processed in bounded batches with a visible queued count. Saved results open immediately between background passes. Without an AI key, processing pauses and the page explains what to configure instead of falling back to an inbox or link dump.
+
 1. Create or select a project in [Google Cloud Console](https://console.cloud.google.com/).
 2. Enable the Gmail API and configure the OAuth consent screen.
 3. Create a **Web application** OAuth client.
 4. Copy the exact redirect URI shown under **Settings → Newsletters** into the OAuth client.
 5. Paste the client ID and secret, customize the Gmail search query if desired, and choose **Save & choose Gmail account**.
 
-The requested scope is Gmail read-only. The app never sends, labels, deletes, marks as read, or archives Gmail messages. Dashboard archive state is local only.
+The requested scope is Gmail read-only. The app never sends, labels, deletes, marks as read, or archives Gmail messages. Dashboard archive state is local only. Newsletter text is sent only to the selected AI provider for extraction; email addresses and subscriber-specific link URLs are masked first. Raw bodies are not stored locally; SQLite keeps issue metadata, a body hash, extracted story metadata, and deduplicated topic state.
 
 Google classifies `gmail.readonly` as a restricted scope. A personal OAuth project left in External/Testing mode can require periodic reauthorization; production distribution of shared OAuth credentials requires Google verification. This project intentionally uses bring-your-own OAuth credentials rather than shipping a universal secret.
 
@@ -128,7 +135,7 @@ Existing installations that already contain `./.control-center` continue using t
 Stored files include:
 
 - `settings.json`: configuration, OAuth tokens, and any saved AI/provider keys, owner-readable on POSIX systems;
-- `control-center.sqlite`: raw Industry discoveries, surfaced content, archive state, reminders, and tasks;
+- `control-center.sqlite`: raw Industry discoveries, saved collector snapshots, surfaced content, extracted newsletter issue/link metadata, archive state, reminders, and tasks;
 - snapshot JSON files: sitemap and audience baselines.
 
 Secrets never return through the Settings API. They remain local, but they are not encrypted at rest. Protect the operating-system account and any backups.

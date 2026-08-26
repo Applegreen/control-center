@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1 - 2026-08-25
+
+- Added persistent dark mode with a saved theme preference.
+- Added Google OAuth client ID validation and clearer setup guidance to prevent account email addresses from being entered as client IDs.
+- Added durable response snapshots for Industry, Mentions, and Newsletters so tab navigation opens saved results instead of rerunning collectors.
+- Made Industry, Mention, and Newsletter archive actions update both SQLite and the saved response atomically, eliminating the post-archive collection delay.
+- Added a direct Mention-to-Reminder action.
+- Rebuilt Newsletters as an AI-required intelligence pipeline that reads unseen Gmail issues, extracts actual news, filters utility/promotional content, resolves safe public redirects, and combines duplicate coverage into stable topics with source and Gmail evidence links. Newsletter text goes only to the selected provider with tracking links and email addresses masked; raw bodies are not stored locally.
+- Added schema-v5 migration backups plus normalized newsletter issue/mention tables and collector snapshots.
+
 ## 0.3.0 - 2026-08-25
 
 - Split Industry into a broad raw-discovery store and a bounded importance queue, with canonical/title/event deduplication, configurable exclusions, source diversity, scoring reasons, and a default 30-update daily target.

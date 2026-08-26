@@ -11,7 +11,7 @@ import {
   MENTION_COLLECTION_VERSION,
   mentionIdentity,
 } from "@/lib/mention-filter";
-import { syncContentItems } from "@/lib/server/database";
+import { getDatabase, syncContentItems } from "@/lib/server/database";
 import { googleNewsArticleId, resolveGoogleNewsUrl } from "@/lib/server/google-news";
 import { collectionScope } from "@/lib/collection-scope";
 import {
@@ -25,6 +25,10 @@ import {
   type VerifiedMentionPage,
 } from "@/lib/server/mention-page";
 import { researchMentionsWithAi } from "@/lib/server/mention-research";
+import {
+  readCollectorSnapshot,
+  writeCollectorSnapshot,
+} from "@/lib/collector-cache";
 
 export const runtime = "nodejs";
 
@@ -81,8 +85,9 @@ async function readVerifiedPages(urls: string[]) {
   return pages;
 }
 
-export async function GET() {
-  const settings = await readSettings();
+async function collectMentions(
+  settings: Awaited<ReturnType<typeof readSettings>>,
+) {
   const checkedAt = new Date().toISOString();
   const freshSince = new Date(Date.parse(checkedAt) - MENTION_WINDOW_DAYS * 86_400_000).toISOString();
   const freshUntil = new Date(Date.parse(checkedAt) + 10 * 60 * 1000).toISOString();
@@ -368,4 +373,53 @@ export async function GET() {
     windowDays: MENTION_WINDOW_DAYS,
     providerStatuses,
   } satisfies LiveFeedResponse);
+}
+
+function mentionsCacheScope(
+  settings: Awaited<ReturnType<typeof readSettings>>,
+) {
+  return collectionScope("mentions-response-v1", [
+    `strict:${settings.mentions.strictMode}`,
+    ...settings.mentions.terms.map((term) => `term:${term}`),
+    ...settings.mentions.websites.map((website) => `website:${website}`),
+    ...settings.mentions.identityAnchors.map((anchor) => `anchor:${anchor}`),
+    ...settings.mentions.negativeTerms.map((term) => `exclude:${term}`),
+    `exclude-owned:${settings.mentions.excludeOwnedSites}`,
+    ...settings.industry.keywords.map((keyword) => `niche:${keyword}`),
+    `ai:${settings.ai.provider}:${settings.ai.model}`,
+  ]);
+}
+
+export async function GET(request: Request) {
+  const settings = await readSettings();
+  const scope = mentionsCacheScope(settings);
+  const forceRefresh = new URL(request.url).searchParams.get("refresh") === "1";
+  if (!forceRefresh) {
+    const cached = readCollectorSnapshot<LiveFeedResponse>(
+      getDatabase(),
+      "mentions",
+      scope,
+    );
+    if (cached) {
+      return Response.json(cached.payload, {
+        headers: { "X-Control-Center-Cache": "hit" },
+      });
+    }
+  }
+  const response = await collectMentions(settings);
+  if (response.ok) {
+    const payload = await response.clone().json() as LiveFeedResponse;
+    const saved = writeCollectorSnapshot(
+      getDatabase(),
+      "mentions",
+      scope,
+      payload,
+      payload.checkedAt,
+    );
+    return Response.json(saved, {
+      headers: { "X-Control-Center-Cache": "refresh" },
+    });
+  }
+  response.headers.set("X-Control-Center-Cache", "refresh");
+  return response;
 }

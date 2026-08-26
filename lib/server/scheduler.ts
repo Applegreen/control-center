@@ -20,11 +20,17 @@ async function refreshAllCollectors() {
   try {
     const baseUrl = localBaseUrl();
     await Promise.allSettled([
-      "/api/live/industry",
-      "/api/live/mentions",
+      "/api/live/industry?refresh=1",
+      "/api/live/mentions?refresh=1",
       "/api/live/audience",
-      "/api/live/newsletters",
-    ].map((path) => fetch(`${baseUrl}${path}`, { cache: "no-store", signal: AbortSignal.timeout(60_000) })));
+      "/api/live/newsletters?refresh=1",
+    ].map(async (path) => {
+      const response = await fetch(`${baseUrl}${path}`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(path.startsWith("/api/live/newsletters") ? 300_000 : 60_000),
+      });
+      await response.body?.cancel();
+    }));
   } finally {
     globalThis.controlCenterCollectorRunning = false;
   }

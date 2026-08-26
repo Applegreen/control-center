@@ -10,6 +10,10 @@ import { collectionScope } from "@/lib/collection-scope";
 import { curateIndustryDiscoveries, selectDiverseIndustryDiscoveries } from "@/lib/industry-curation";
 import { listIndustryDiscoveries, pruneIndustryDiscoveries, upsertIndustryDiscoveries } from "@/lib/industry-store";
 import { curateIndustryWithAi } from "@/lib/server/industry-ai";
+import {
+  readCollectorSnapshot,
+  writeCollectorSnapshot,
+} from "@/lib/collector-cache";
 
 export const runtime = "nodejs";
 
@@ -211,13 +215,54 @@ async function collectIndustry() {
   return Response.json({ configured: true, checkedAt, items: sortIndustryItems(saved.active, "important"), archivedItems, archiveCount: archivedItems.length, historyItems, historyCount: historyItems.length, errors, sourceStatuses, freshnessHours: INDUSTRY_FRESHNESS_HOURS, discoveredCount: rawItems.length, surfacedLimit: settings.industry.dailyLimit, curationMode, providerStatuses } satisfies LiveFeedResponse);
 }
 
-export async function GET() {
+function industryCacheScope(settings: Awaited<ReturnType<typeof readSettings>>) {
+  return collectionScope("industry-response-v1", [
+    settings.industry.description,
+    ...settings.industry.sources.map((source) => `${source.id}:${source.url}`),
+    ...settings.industry.keywords.map((keyword) => `topic:${keyword}`),
+    ...settings.industry.excludedTerms.map((term) => `exclude:${term}`),
+    `limit:${settings.industry.dailyLimit}`,
+    `ai:${settings.ai.provider}:${settings.ai.model}`,
+  ]);
+}
+
+export async function GET(request: Request) {
+  const settings = await readSettings();
+  const scope = industryCacheScope(settings);
+  const forceRefresh = new URL(request.url).searchParams.get("refresh") === "1";
+  if (!forceRefresh) {
+    const cached = readCollectorSnapshot<LiveFeedResponse>(
+      getDatabase(),
+      "industry",
+      scope,
+    );
+    if (cached) {
+      return Response.json(cached.payload, {
+        headers: { "X-Control-Center-Cache": "hit" },
+      });
+    }
+  }
   const previous = globalThis.controlCenterIndustryQueue ?? Promise.resolve();
   let release = () => {};
   globalThis.controlCenterIndustryQueue = new Promise<void>((resolve) => { release = resolve; });
   await previous;
   try {
-    return await collectIndustry();
+    const response = await collectIndustry();
+    if (response.ok) {
+      const payload = await response.clone().json() as LiveFeedResponse;
+      const saved = writeCollectorSnapshot(
+        getDatabase(),
+        "industry",
+        scope,
+        payload,
+        payload.checkedAt,
+      );
+      return Response.json(saved, {
+        headers: { "X-Control-Center-Cache": "refresh" },
+      });
+    }
+    response.headers.set("X-Control-Center-Cache", "refresh");
+    return response;
   } finally {
     release();
   }

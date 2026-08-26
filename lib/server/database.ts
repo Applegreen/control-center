@@ -14,6 +14,8 @@ import {
 import { initializeWorkspaceStore } from "@/lib/workspace-store";
 import { initializeBriefStore } from "@/lib/brief-store";
 import { initializeIndustryStore } from "@/lib/industry-store";
+import { initializeCollectorCache } from "@/lib/collector-cache";
+import { initializeNewsletterStore } from "@/lib/newsletter-store";
 
 export { setContentArchived } from "@/lib/archive-store";
 export type { ContentCategory } from "@/lib/archive-store";
@@ -36,13 +38,13 @@ export function getDatabase() {
     const schema = database.prepare("PRAGMA user_version").get() as unknown as {
       user_version: number;
     };
-    if (schema.user_version > 4) {
+    if (schema.user_version > 5) {
       database.close();
       throw new Error(
-        `This data directory uses schema ${schema.user_version}, but this Control Center supports schema 4. Update the app before opening it.`,
+        `This data directory uses schema ${schema.user_version}, but this Control Center supports schema 5. Update the app before opening it.`,
       );
     }
-    if (databaseExisted && schema.user_version < 4) {
+    if (databaseExisted && schema.user_version < 5) {
       const backupDirectory = path.join(directory, "migration-backups");
       mkdirSync(backupDirectory, { recursive: true, mode: 0o700 });
       const backupPath = path.join(
@@ -52,12 +54,16 @@ export function getDatabase() {
       database.exec(`VACUUM INTO '${backupPath.replaceAll("'", "''")}'`);
       chmodSync(backupPath, 0o600);
     }
-    const initialized = initializeIndustryStore(
-      initializeBriefStore(
-        initializeWorkspaceStore(initializeContentStore(database)),
+    const initialized = initializeNewsletterStore(
+      initializeCollectorCache(
+        initializeIndustryStore(
+          initializeBriefStore(
+            initializeWorkspaceStore(initializeContentStore(database)),
+          ),
+        ),
       ),
     );
-    if (schema.user_version < 4) initialized.exec("PRAGMA user_version = 4;");
+    if (schema.user_version < 5) initialized.exec("PRAGMA user_version = 5;");
     chmodSync(databasePath, 0o600);
     globalThis.controlCenterDatabase = initialized;
   }

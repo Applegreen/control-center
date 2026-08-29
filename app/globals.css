@@ -551,3 +551,15 @@ footer { width: min(1380px, calc(100vw - 48px)); min-height: 58px; display: flex
   letter-spacing: .16em;
   color: var(--muted);
 }
+
+/* ---- DC-MAIL ---- */
+.mail-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 14px;
+  padding: 12px 0; border-bottom: 1px solid var(--line);
+}
+.mail-row:last-child { border-bottom: 0; }
+.mail-row p { margin: 4px 0 0; }
+.mail-unread {
+  flex: none; font-family: var(--mono); font-size: 9px; letter-spacing: .12em;
+  padding: 3px 7px; border-radius: 999px; background: var(--coral); color: #fff;
+}

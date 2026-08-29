@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { MailView } from "@/components/mail-view";
 import {
   Activity,
   Archive,
@@ -92,6 +93,7 @@ type Tab =
   | "reminders"
   | "audience"
   | "newsletters"
+  | "mail"
   | "tasks"
   | "settings";
 type SettingsSection =
@@ -148,6 +150,7 @@ const nav: { id: Tab; label: string; icon: typeof Activity }[] = [
   { id: "reminders", label: "Reminders", icon: Bookmark },
   { id: "audience", label: "Audience", icon: Users },
   { id: "newsletters", label: "Newsletters", icon: Newspaper },
+  { id: "mail", label: "Email", icon: Mail },
   { id: "tasks", label: "Tasks", icon: ListTodo },
 ];
 
@@ -3762,6 +3765,7 @@ export function ControlCenter() {
             openAiSettings={() => openSettings("ai")}
           />
         )}{" "}
+        {activeTab === "mail" && <MailView />}{" "}
         {activeTab === "tasks" && (
           <TasksView tasks={tasks} setTasks={setTasks} />
         )}{" "}

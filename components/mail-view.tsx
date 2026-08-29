@@ -72,7 +72,7 @@ export function MailView() {
   );
 
   return (
-    <>
+    <div className="view">
       <div className="page-heading reveal">
         <div>
           <p className="eyebrow">Mailbox triage</p>
@@ -81,7 +81,7 @@ export function MailView() {
             Recent arrivals across your mailboxes, read-only. Compose and reply in webmail.
           </p>
         </div>
-        <button type="button" className="primary-button" onClick={() => void load()} disabled={loading}>
+        <button type="button" className="button button-primary" onClick={() => void load()} disabled={loading}>
           <RefreshCw size={16} /> {loading ? "Checking…" : "Check mail"}
         </button>
       </div>
@@ -113,26 +113,29 @@ export function MailView() {
       ) : null}
 
       {data?.accounts?.length ? (
-        <div className="source-grid reveal">
+        <div className="source-status-grid reveal">
           {data.accounts.map((summary) => (
-            <section className="panel" key={summary.id}>
-              <b>
-                <Mail size={14} /> {summary.label}
-              </b>
+            <div
+              className={`source-status ${summary.ok ? "" : "status-changed"}`}
+              key={summary.id}
+            >
+              <span>
+                <Mail size={13} />
+                <b>{summary.label}</b>
+              </span>
+              <span>{summary.ok ? `${summary.unread} unread` : "Unavailable"}</span>
               <p>
-                <small>{summary.user}</small>
+                {summary.user}
+                {summary.ok ? ` · ${summary.count} recent` : ""}
               </p>
-              <p>
-                {summary.ok ? `${summary.unread} unread of ${summary.count}` : "Unavailable"}
-              </p>
-            </section>
+            </div>
           ))}
         </div>
       ) : null}
 
       {data?.accounts?.length ? (
-        <div className="reveal" style={{ margin: "18px 0" }}>
-          <label htmlFor="mail-account-filter">Mailbox&nbsp;</label>
+        <div className="feed-sort-bar reveal">
+          <label htmlFor="mail-account-filter">Mailbox</label>
           <select
             id="mail-account-filter"
             value={account}
@@ -164,6 +167,6 @@ export function MailView() {
           </article>
         ))}
       </section>
-    </>
+    </div>
   );
 }

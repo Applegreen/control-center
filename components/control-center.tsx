@@ -135,8 +135,8 @@ const emptySettings: PublicSettings = {
     provider: "none",
     model: "",
     localBaseUrls: DEFAULT_LOCAL_AI_URLS,
-    keySet: { openai: false, anthropic: false, gemini: false, xai: false, lmstudio: false, ollama: false },
-    keySource: { openai: "none", anthropic: "none", gemini: "none", xai: "none", lmstudio: "none", ollama: "none" },
+    keySet: { openai: false, anthropic: false, gemini: false, xai: false, nvidia: false, lmstudio: false, ollama: false },
+    keySource: { openai: "none", anthropic: "none", gemini: "none", xai: "none", nvidia: "none", lmstudio: "none", ollama: "none" },
   },
   dailyBrief: { sourceLabels: [], lookbackDays: 7, sections: { industry: 5, mentions: 5, newsletters: 5 } },
 };
@@ -3643,11 +3643,9 @@ export function ControlCenter() {
           role="button"
           tabIndex={0}
         >
-          <span className="brand-mark">
-            <Activity size={18} />
-          </span>
+          <span className="brand-mark" />
           <span>
-            <b>{settings.general.workspaceName.toUpperCase()}</b>
+            <b>Digital Characters</b>
             <small>CONTROL CENTER</small>
           </span>
         </div>

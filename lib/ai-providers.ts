@@ -1,12 +1,13 @@
 import type { AiKeyProvider, AiModelOption, AiProvider, LocalAiProvider, PublicSettings } from "./types";
 
-export const AI_KEY_PROVIDERS: AiKeyProvider[] = ["openai", "anthropic", "gemini", "xai", "lmstudio", "ollama"];
+export const AI_KEY_PROVIDERS: AiKeyProvider[] = ["openai", "anthropic", "gemini", "xai", "nvidia", "lmstudio", "ollama"];
 export const AI_PROVIDER_LABELS: Record<AiProvider, string> = {
   none: "Off — built-in ranking only",
   openai: "OpenAI",
   anthropic: "Anthropic",
   gemini: "Google Gemini",
   xai: "xAI · Grok",
+  nvidia: "NVIDIA NIM",
   lmstudio: "LM Studio · local",
   ollama: "Ollama · local",
 };
@@ -15,6 +16,7 @@ export const DEFAULT_AI_MODELS: Record<AiKeyProvider, string> = {
   anthropic: "claude-sonnet-4-20250514",
   gemini: "gemini-3.7-flash",
   xai: "grok-4.6",
+  nvidia: "deepseek-ai/deepseek-v4-pro-0813",
   lmstudio: "",
   ollama: "",
 };
@@ -32,7 +34,7 @@ export function isLocalAiProvider(provider: AiProvider): provider is LocalAiProv
 }
 
 export function aiSupportsWebSearch(provider: AiProvider) {
-  return provider !== "none" && !isLocalAiProvider(provider);
+  return provider !== "none" && provider !== "nvidia" && !isLocalAiProvider(provider);
 }
 
 export function aiEnvironmentKey(provider: AiKeyProvider, environment: Record<string, string | undefined>) {
@@ -41,6 +43,7 @@ export function aiEnvironmentKey(provider: AiKeyProvider, environment: Record<st
     anthropic: environment.ANTHROPIC_API_KEY,
     gemini: environment.GEMINI_API_KEY || environment.GOOGLE_API_KEY,
     xai: environment.XAI_API_KEY,
+    nvidia: environment.NVIDIA_API_KEY || environment.NVIDIA_NIM_API_KEY,
     lmstudio: environment.LM_STUDIO_API_KEY || environment.LM_API_TOKEN,
     ollama: environment.OLLAMA_LOCAL_API_KEY,
   }[provider] || "").trim();

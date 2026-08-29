@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MailView } from "@/components/mail-view";
+import { AppsPanel } from "@/components/apps-panel";
 import {
   Activity,
   Archive,
@@ -689,6 +690,7 @@ function TodayView({
           </button>
         }
       />
+      <AppsPanel />
       <div className="brief-banner reveal delay-1">
         <div className="brief-mark">
           <Sparkles size={19} />

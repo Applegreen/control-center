@@ -593,3 +593,21 @@ footer { width: min(1380px, calc(100vw - 48px)); min-height: 58px; display: flex
 .mail-row-actions { gap: 14px; padding-left: 6px; }
 .mail-row-actions .text-button { opacity: .55; transition: opacity .15s ease; }
 .mail-row:hover .mail-row-actions .text-button { opacity: 1; }
+
+/* ---- DC-APPS ---- */
+.apps-panel { padding: 19px 20px; margin-bottom: 16px; }
+.apps-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin-top: 15px; }
+.app-card {
+  display: flex; flex-direction: column; gap: 5px; padding: 15px 16px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--card);
+  color: inherit; text-decoration: none;
+  transition: transform .15s ease, border-color .15s ease;
+}
+.app-card:hover { transform: translateY(-2px); border-color: var(--coral); }
+.app-card b { font-family: var(--serif); font-size: 16px; font-weight: 500; }
+.app-card small { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.app-state { display: flex; align-items: center; gap: 6px; color: var(--muted); font-family: var(--mono); font-size: 8px; letter-spacing: .14em; text-transform: uppercase; }
+.app-state i { width: 6px; height: 6px; border-radius: 50%; background: var(--line-dark); }
+.app-state.state-live i { background: var(--teal); }
+.app-state.state-down i { background: var(--coral); }
+.app-open { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; color: var(--coral-dark); font-size: 10px; font-weight: 700; }

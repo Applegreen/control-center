@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Mail, RefreshCw } from "lucide-react";
+import { Mail, RefreshCw, Send, X } from "lucide-react";
 
 type MailAccountSummary = {
   id: string;
@@ -19,6 +19,7 @@ type MailMessage = {
   from: string;
   fromName: string;
   subject: string;
+  messageId: string;
   date: string;
   unread: boolean;
   flagged: boolean;
@@ -48,6 +49,15 @@ export function MailView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [account, setAccount] = useState("all");
+  const [draft, setDraft] = useState<{
+    accountId: string;
+    to: string;
+    subject: string;
+    text: string;
+    inReplyTo: string;
+  } | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -67,6 +77,27 @@ export function MailView() {
     void load();
   }, [load]);
 
+  const send = useCallback(async () => {
+    if (!draft) return;
+    setSending(true);
+    setSendResult("");
+    try {
+      const response = await fetch("/api/mail/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(draft),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Send failed.");
+      setSendResult("Sent.");
+      setDraft(null);
+    } catch (caught) {
+      setSendResult(caught instanceof Error ? caught.message : "Send failed.");
+    } finally {
+      setSending(false);
+    }
+  }, [draft]);
+
   const items = (data?.items || []).filter(
     (message) => account === "all" || message.accountId === account,
   );
@@ -78,12 +109,37 @@ export function MailView() {
           <p className="eyebrow">Mailbox triage</p>
           <h1>Email</h1>
           <p className="page-description">
-            Recent arrivals across your mailboxes, read-only. Compose and reply in webmail.
+            Recent arrivals across your mailboxes. You write and you send — nothing goes out
+            on its own.
           </p>
         </div>
-        <button type="button" className="button button-primary" onClick={() => void load()} disabled={loading}>
-          <RefreshCw size={16} /> {loading ? "Checking…" : "Check mail"}
-        </button>
+        <div className="mail-actions">
+          <button
+            type="button"
+            className="button button-ghost"
+            onClick={() => {
+              setSendResult("");
+              setDraft({
+                accountId: data?.accounts?.[0]?.id || "",
+                to: "",
+                subject: "",
+                text: "",
+                inReplyTo: "",
+              });
+            }}
+            disabled={!data?.accounts?.length}
+          >
+            <Send size={15} /> Compose
+          </button>
+          <button
+            type="button"
+            className="button button-primary"
+            onClick={() => void load()}
+            disabled={loading}
+          >
+            <RefreshCw size={15} /> {loading ? "Checking…" : "Check mail"}
+          </button>
+        </div>
       </div>
 
       {data && !data.configured && (
@@ -151,6 +207,67 @@ export function MailView() {
         </div>
       ) : null}
 
+      {sendResult && !draft ? (
+        <section className="panel reveal">
+          <p>{sendResult}</p>
+        </section>
+      ) : null}
+
+      {draft ? (
+        <section className="panel reveal mail-composer">
+          <div className="mail-composer-head">
+            <b>New message</b>
+            <button type="button" className="text-button" onClick={() => setDraft(null)}>
+              <X size={13} /> Discard
+            </button>
+          </div>
+          <label htmlFor="mail-from">From</label>
+          <select
+            id="mail-from"
+            value={draft.accountId}
+            onChange={(event) => setDraft({ ...draft, accountId: event.target.value })}
+          >
+            {(data?.accounts || []).map((summary) => (
+              <option key={summary.id} value={summary.id}>
+                {summary.user}
+              </option>
+            ))}
+          </select>
+          <label htmlFor="mail-to">To</label>
+          <input
+            id="mail-to"
+            type="email"
+            autoComplete="off"
+            value={draft.to}
+            onChange={(event) => setDraft({ ...draft, to: event.target.value })}
+          />
+          <label htmlFor="mail-subject">Subject</label>
+          <input
+            id="mail-subject"
+            type="text"
+            autoComplete="off"
+            value={draft.subject}
+            onChange={(event) => setDraft({ ...draft, subject: event.target.value })}
+          />
+          <label htmlFor="mail-body">Message</label>
+          <textarea
+            id="mail-body"
+            rows={9}
+            value={draft.text}
+            onChange={(event) => setDraft({ ...draft, text: event.target.value })}
+          />
+          {sendResult ? <p>{sendResult}</p> : null}
+          <button
+            type="button"
+            className="button button-primary"
+            onClick={() => void send()}
+            disabled={sending || !draft.to || !draft.subject || !draft.text}
+          >
+            <Send size={15} /> {sending ? "Sending…" : "Send"}
+          </button>
+        </section>
+      ) : null}
+
       <section className="panel reveal">
         {loading && !data ? <p>Opening mailboxes…</p> : null}
         {!loading && data?.configured && !items.length ? <p>Nothing recent.</p> : null}
@@ -163,7 +280,27 @@ export function MailView() {
               </small>
               <p>{message.subject}</p>
             </div>
-            {message.unread ? <span className="mail-unread">NEW</span> : null}
+            <div className="mail-row-actions">
+              {message.unread ? <span className="mail-unread">NEW</span> : null}
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => {
+                  setSendResult("");
+                  setDraft({
+                    accountId: message.accountId,
+                    to: message.from,
+                    subject: message.subject.toLowerCase().startsWith("re:")
+                      ? message.subject
+                      : `Re: ${message.subject}`,
+                    text: "",
+                    inReplyTo: message.messageId,
+                  });
+                }}
+              >
+                Reply
+              </button>
+            </div>
           </article>
         ))}
       </section>

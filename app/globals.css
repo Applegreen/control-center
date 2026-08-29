@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
 :root {
   --paper: #f4f1ea;
   --paper-deep: #ebe6dc;
@@ -454,4 +455,99 @@ footer { width: min(1380px, calc(100vw - 48px)); min-height: 58px; display: flex
 
 @media (max-width: 620px) {
   .daily-brief-head { flex-direction: column; }.daily-brief-grid { grid-template-columns: 1fr; }.brief-setup-state { grid-template-columns: auto 1fr; }.brief-setup-state > .button { grid-column: 1 / -1; }.bridge-card { grid-template-columns: 1fr; }.bridge-card > code { grid-column: auto; }
+}
+
+/* ================= DC-THEME — digitalcharacters.africa ================= */
+:root {
+  --paper: #f6f4ef;
+  --paper-deep: #ece8e0;
+  --card: #ffffff;
+  --ink: #15130f;
+  --muted: #726f66;
+  --faint: #9a968c;
+  --line: rgba(0,0,0,.12);
+  --line-dark: rgba(0,0,0,.20);
+  --coral: #e8590c;
+  --coral-dark: #c2410c;
+  --coral-soft: #ffe8d9;
+  --coral-wash: rgba(255,106,26,.10);
+  --topbar: rgba(246,244,239,.91);
+  --topbar-line: rgba(0,0,0,.10);
+  --surface: rgba(255,255,255,.88);
+  --surface-strong: rgba(255,255,255,.94);
+  --surface-medium: rgba(255,255,255,.70);
+  --surface-soft: rgba(255,255,255,.50);
+  --surface-faint: rgba(255,255,255,.30);
+  --surface-wash: rgba(21,19,15,.03);
+  --surface-label: rgba(21,19,15,.04);
+  --surface-highlight: rgba(255,255,255,.80);
+  --deep-soft: rgba(236,232,224,.35);
+  --deep-hover: rgba(236,232,224,.60);
+  --inverse: #15130f;
+  --dot: rgba(21,19,15,.06);
+  --shadow: 0 12px 40px rgba(20,18,15,.07);
+  --serif: "Space Grotesk", system-ui, sans-serif;
+  --sans: "Space Grotesk", system-ui, sans-serif;
+}
+
+[data-theme="dark"] {
+  --paper: #0a0a0c;
+  --paper-deep: #111114;
+  --card: #141417;
+  --ink: #f3f1ec;
+  --muted: #8a8880;
+  --faint: #6b6a63;
+  --line: rgba(255,255,255,.12);
+  --line-dark: rgba(255,255,255,.20);
+  --coral: #ff6a1a;
+  --coral-dark: #ff8a4a;
+  --coral-soft: #2a1508;
+  --coral-wash: rgba(255,106,26,.14);
+  --topbar: rgba(10,10,12,.90);
+  --topbar-line: rgba(255,255,255,.10);
+  --surface: rgba(20,20,23,.90);
+  --surface-strong: rgba(20,20,23,.94);
+  --surface-medium: rgba(20,20,23,.72);
+  --surface-soft: rgba(20,20,23,.54);
+  --surface-faint: rgba(20,20,23,.35);
+  --surface-wash: rgba(243,241,236,.035);
+  --surface-label: rgba(243,241,236,.055);
+  --surface-highlight: rgba(243,241,236,.045);
+  --deep-soft: rgba(23,21,27,.38);
+  --deep-hover: rgba(23,21,27,.68);
+  --inverse: #0a0a0c;
+  --dot: rgba(243,241,236,.045);
+  --shadow: 0 18px 50px rgba(0,0,0,.50);
+}
+
+/* Space Grotesk sits tighter than the original serif */
+.page-heading h1 { letter-spacing: -.03em; }
+.panel-header h2, .panel-header h3, .daily-brief-head h2 { letter-spacing: -.02em; }
+
+/* ---- DC-BRAND ---- */
+.brand-lockup { flex-direction: row; align-items: center; gap: 10px; }
+.brand-mark {
+  display: block;
+  width: 40px; height: 34px;
+  background: url("/dc-mark.png") no-repeat center / contain;
+  border-radius: 0;
+  transform: none;
+}
+.brand-lockup > span:last-child { display: flex; flex-direction: column; line-height: 1; }
+.brand-lockup b {
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: -.01em;
+  text-transform: none;
+  max-width: none;
+  color: var(--ink);
+}
+.brand-lockup small {
+  display: block !important;
+  margin-top: 5px;
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  font-size: 8.5px;
+  letter-spacing: .16em;
+  color: var(--muted);
 }

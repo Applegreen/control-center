@@ -43,7 +43,7 @@ export function AppsPanel() {
       </div>
       <div className="apps-grid">
         {(items || []).map((app) => (
-          
+          <a
             key={app.id}
             className="app-card"
             href={app.href}

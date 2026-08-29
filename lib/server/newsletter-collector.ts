@@ -258,7 +258,7 @@ async function runNewsletterCollection(settings: Settings): Promise<NewsletterFe
   );
   const pendingIds = messageIds.filter((id) => !known.has(id));
   const currentIds = pendingIds.slice(0, MAX_NEW_ISSUES_PER_PASS);
-  const messageResults = await settleWithConcurrency(currentIds, 4, async (id) => {
+  const messageResults = await settleWithConcurrency(currentIds, 1, async (id) => {
     const message = await gmailJson<GmailMessage>(`/messages/${id}?format=full`, token);
     const issue = parseIssue(message, mailbox);
     issue.links = await extractNewsletterStoriesWithAi(settings, issue);
@@ -334,6 +334,12 @@ async function runNewsletterCollection(settings: Settings): Promise<NewsletterFe
     processorScope: scope,
   });
   const failedMessages = messageResults.filter((result) => result.status === "rejected").length;
+  for (const result of messageResults) {
+    if (result.status === "rejected") {
+      const reason = result.reason;
+      console.error("[newsletter-deferred]", reason instanceof Error ? reason.message : String(reason));
+    }
+  }
   const errors = [
     ...(failedMessages
       ? [`${failedMessages} new Gmail issue${failedMessages === 1 ? " was" : "s were"} deferred because the message could not be read or analyzed. Check Gmail access and the selected AI provider/model.`]

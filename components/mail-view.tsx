@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Mail, RefreshCw, Send, X } from "lucide-react";
+import { Mail, RefreshCw, Send, Trash2, X } from "lucide-react";
 
 type MailAccountSummary = {
   id: string;
@@ -58,6 +58,8 @@ export function MailView() {
   } | null>(null);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState("");
+  const [deleting, setDeleting] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -97,6 +99,35 @@ export function MailView() {
       setSending(false);
     }
   }, [draft]);
+
+  const remove = useCallback(
+    async (accountId: string, uid: number) => {
+      const key = `${accountId}-${uid}`;
+      setDeleting(key);
+      setSendResult("");
+      try {
+        const response = await fetch("/api/mail/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accountId, uid }),
+        });
+        const payload = (await response.json()) as { error?: string };
+        if (!response.ok) throw new Error(payload.error || "Delete failed.");
+        setConfirmDelete("");
+        setData((current) =>
+          current
+            ? { ...current, items: current.items.filter((item) => `${item.accountId}-${item.uid}` !== key) }
+            : current,
+        );
+        setSendResult("Moved to Trash.");
+      } catch (caught) {
+        setSendResult(caught instanceof Error ? caught.message : "Delete failed.");
+      } finally {
+        setDeleting("");
+      }
+    },
+    [],
+  );
 
   const items = (data?.items || []).filter(
     (message) => account === "all" || message.accountId === account,
@@ -300,6 +331,36 @@ export function MailView() {
               >
                 Reply
               </button>
+              {confirmDelete === `${message.accountId}-${message.uid}` ? (
+                <>
+                  <button
+                    type="button"
+                    className="text-button danger"
+                    disabled={deleting === `${message.accountId}-${message.uid}`}
+                    onClick={() => void remove(message.accountId, message.uid)}
+                  >
+                    {deleting === `${message.accountId}-${message.uid}`
+                      ? "Moving…"
+                      : "Confirm"}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => setConfirmDelete("")}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="text-button danger"
+                  aria-label="Move to Trash"
+                  onClick={() => setConfirmDelete(`${message.accountId}-${message.uid}`)}
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
             </div>
           </article>
         ))}

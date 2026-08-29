@@ -143,7 +143,7 @@ export function MailView() {
       </div>
 
       {data && !data.configured && (
-        <section className="panel reveal">
+        <section className="panel reveal mail-panel">
           <p>
             No mailboxes configured. Add <code>MAIL_HOST</code>, <code>MAIL_USER_1</code> and{" "}
             <code>MAIL_PASS_1</code> to <code>/etc/control-center.env</code>, then restart the service.
@@ -152,13 +152,13 @@ export function MailView() {
       )}
 
       {error && (
-        <section className="panel reveal">
+        <section className="panel reveal mail-panel">
           <p>{error}</p>
         </section>
       )}
 
       {data?.errors?.length ? (
-        <section className="panel reveal">
+        <section className="panel reveal mail-panel">
           <b>Some mailboxes could not be read</b>
           {data.errors.map((message) => (
             <p key={message}>
@@ -208,7 +208,7 @@ export function MailView() {
       ) : null}
 
       {sendResult && !draft ? (
-        <section className="panel reveal">
+        <section className="panel reveal mail-panel">
           <p>{sendResult}</p>
         </section>
       ) : null}
@@ -268,7 +268,7 @@ export function MailView() {
         </section>
       ) : null}
 
-      <section className="panel reveal">
+      <section className="panel reveal mail-list">
         {loading && !data ? <p>Opening mailboxes…</p> : null}
         {!loading && data?.configured && !items.length ? <p>Nothing recent.</p> : null}
         {items.map((message) => (

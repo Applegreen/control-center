@@ -576,3 +576,20 @@ footer { width: min(1380px, calc(100vw - 48px)); min-height: 58px; display: flex
 }
 .mail-composer textarea { resize: vertical; line-height: 1.55; }
 .mail-composer .button { align-self: flex-start; margin-top: 8px; }
+
+/* ---- DC-MAIL-POLISH ---- */
+.mail-panel { padding: 17px 19px; }
+.mail-panel p { margin: 0; }
+.mail-panel p + p { margin-top: 7px; }
+.mail-list { padding: 2px 0; }
+.mail-composer { padding: 20px; }
+
+.mail-row { padding: 15px 19px; gap: 18px; transition: background .15s ease; }
+.mail-row:hover { background: var(--deep-hover); }
+.mail-row > div { min-width: 0; }
+.mail-row b { font-family: var(--serif); font-size: 15px; font-weight: 500; }
+.mail-row small { color: var(--muted); font-size: 10px; }
+.mail-row p { margin: 5px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.mail-row-actions { gap: 14px; padding-left: 6px; }
+.mail-row-actions .text-button { opacity: .55; transition: opacity .15s ease; }
+.mail-row:hover .mail-row-actions .text-button { opacity: 1; }

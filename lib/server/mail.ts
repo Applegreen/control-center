@@ -17,6 +17,7 @@ export type MailMessage = {
   from: string;
   fromName: string;
   subject: string;
+  messageId: string;
   date: string;
   unread: boolean;
   flagged: boolean;
@@ -81,6 +82,7 @@ export async function fetchRecentMail(
           from: sender?.address || "",
           fromName: sender?.name || sender?.address || "Unknown sender",
           subject: envelope?.subject || "(no subject)",
+          messageId: envelope?.messageId || "",
           date: (envelope?.date || new Date()).toISOString(),
           unread: !flags.has("\\Seen"),
           flagged: flags.has("\\Flagged"),

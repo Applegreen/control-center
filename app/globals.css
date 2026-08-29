@@ -563,3 +563,16 @@ footer { width: min(1380px, calc(100vw - 48px)); min-height: 58px; display: flex
   flex: none; font-family: var(--mono); font-size: 9px; letter-spacing: .12em;
   padding: 3px 7px; border-radius: 999px; background: var(--coral); color: #fff;
 }
+
+/* ---- DC-MAIL-SEND ---- */
+.mail-actions { display: flex; align-items: center; gap: 9px; }
+.mail-row-actions { flex: none; display: flex; align-items: center; gap: 12px; }
+.mail-composer { display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; }
+.mail-composer-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.mail-composer label { color: var(--muted); font-family: var(--mono); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; }
+.mail-composer input, .mail-composer select, .mail-composer textarea {
+  width: 100%; padding: 10px 11px; border: 1px solid var(--line-dark); border-radius: 7px;
+  color: var(--ink); background: var(--card); font-family: inherit; font-size: 13px;
+}
+.mail-composer textarea { resize: vertical; line-height: 1.55; }
+.mail-composer .button { align-self: flex-start; margin-top: 8px; }

@@ -14,7 +14,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/?tab=settings&section=newsletters&error=oauth-client-id", request.url));
   }
   const state = randomBytes(24).toString("hex");
-  const redirectUri = new URL("/api/auth/google/callback", request.url).toString();
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0].trim();
+  const publicScheme = forwardedProto || request.nextUrl.protocol.replace(":", "");
+  const publicHost = request.headers.get("host") || request.nextUrl.host;
+  const redirectUri = new URL("/api/auth/google/callback", `${publicScheme}://${publicHost}`).toString();
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.search = new URLSearchParams({
     client_id: settings.newsletters.googleClientId,
@@ -26,6 +29,6 @@ export async function GET(request: NextRequest) {
     state,
   }).toString();
   const response = NextResponse.redirect(url);
-  response.cookies.set("cc_google_oauth_state", state, { httpOnly: true, sameSite: "lax", secure: request.nextUrl.protocol === "https:", path: "/", maxAge: 600 });
+  response.cookies.set("cc_google_oauth_state", state, { httpOnly: true, sameSite: "lax", secure: publicScheme === "https", path: "/", maxAge: 600 });
   return response;
 }

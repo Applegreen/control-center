@@ -13,7 +13,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(destination);
   }
   const settings = await readSettings();
-  const redirectUri = new URL("/api/auth/google/callback", request.url).toString();
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0].trim();
+  const publicScheme = forwardedProto || request.nextUrl.protocol.replace(":", "");
+  const publicHost = request.headers.get("host") || request.nextUrl.host;
+  const redirectUri = new URL("/api/auth/google/callback", `${publicScheme}://${publicHost}`).toString();
   try {
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",

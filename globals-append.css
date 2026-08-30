@@ -1,0 +1,228 @@
+/* ============================================================ DC-PROPOSALS
+   Append this block to the END of app/globals.css.
+   It reuses the existing theme tokens (--coral, --ink, --muted, --line,
+   --surface, --card, --mono, --serif) so it follows light/dark automatically.
+   .panel carries no padding of its own, hence .dc-proposal-panel.
+   ============================================================ */
+
+.dc-proposal-panel { padding: 26px 28px; margin-bottom: 18px; }
+.dc-proposal-panel > .panel-header { margin-bottom: 18px; }
+.dc-proposal-panel textarea,
+.dc-proposal-panel input,
+.dc-proposal-panel select {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+.dc-proposal-panel textarea { line-height: 1.55; resize: vertical; }
+.dc-proposal-panel input:focus,
+.dc-proposal-panel textarea:focus,
+.dc-proposal-panel select:focus { outline: 2px solid var(--coral); outline-offset: -1px; }
+
+.dc-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px 18px;
+  margin-bottom: 14px;
+}
+.dc-field-grid .settings-field,
+.dc-proposal-panel > .settings-field { display: flex; flex-direction: column; gap: 6px; }
+.dc-field-grid .settings-field > span,
+.dc-proposal-panel > .settings-field > span {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+/* ---- tables ---- */
+.dc-proposal-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.dc-proposal-table th {
+  padding: 0 10px 9px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  text-align: left;
+}
+.dc-proposal-table td { padding: 12px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.dc-proposal-table tr:last-child td { border-bottom: none; }
+.dc-num, .dc-proposal-table th.dc-num { text-align: right; }
+.dc-sub { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+.dc-amount { font-weight: 700; }
+.dc-row-actions { display: flex; gap: 12px; justify-content: flex-end; white-space: nowrap; }
+.dc-danger { color: var(--coral-dark, var(--coral)); }
+
+.dc-items td { padding: 10px 8px; }
+.dc-items input, .dc-items select { font-size: 12px; }
+.dc-detail-input { margin-top: 5px; font-size: 11px !important; color: var(--muted); }
+.dc-qty { width: 72px; text-align: right; }
+.dc-rate { width: 110px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---- narrative ---- */
+.dc-section-row { padding: 14px 0; border-bottom: 1px dashed var(--line); }
+.dc-section-row:last-child { border-bottom: none; }
+.dc-section-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.dc-heading-input {
+  font-family: var(--serif) !important;
+  font-size: 17px !important;
+  font-weight: 500;
+  border-color: transparent !important;
+  background: transparent !important;
+  padding-left: 0 !important;
+}
+.dc-heading-input:hover { border-color: var(--line) !important; }
+
+/* ---- totals ---- */
+.dc-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 30px;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.dc-rate-inputs { display: flex; gap: 14px; }
+.dc-rate-inputs input { width: 96px; }
+.dc-total-lines { min-width: 260px; margin: 0; margin-left: auto; }
+.dc-total-lines > div { display: flex; justify-content: space-between; gap: 30px; padding: 5px 0; }
+.dc-total-lines dt { color: var(--muted); font-size: 12px; }
+.dc-total-lines dd { margin: 0; font-variant-numeric: tabular-nums; font-size: 13px; }
+.dc-total-lines .dc-grand { margin-top: 7px; padding-top: 11px; border-top: 1px solid var(--line); }
+.dc-total-lines .dc-grand dt { color: var(--ink); font-weight: 700; font-size: 14px; }
+.dc-total-lines .dc-grand dd { color: var(--coral); font-weight: 700; font-size: 19px; }
+
+.dc-export-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0 20px; }
+.dc-export-row a { text-decoration: none; }
+
+@media (max-width: 780px) {
+  .dc-proposal-table thead { display: none; }
+  .dc-proposal-table td { display: block; padding: 6px 0; border: none; }
+  .dc-proposal-table tr { display: block; padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .dc-row-actions { justify-content: flex-start; }
+  .dc-totals { flex-direction: column; align-items: stretch; }
+  .dc-total-lines { min-width: 0; }
+}
+
+/* ============================================================ DC-PROPOSAL-PUBLIC
+   The shareable /p/[token] page. Standalone styling - a client opens this
+   without the dashboard chrome around it. Print rules included so
+   "Print to PDF" from a browser gives a clean document too.
+   ============================================================ */
+
+.pp {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 64px 32px 96px;
+  color: var(--ink, #1a1a1d);
+  font-size: 15px;
+  line-height: 1.65;
+}
+.pp-head { padding-bottom: 22px; border-bottom: 2px solid var(--coral, #e65f45); }
+.pp-studio {
+  margin: 0;
+  color: var(--coral, #e65f45);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .18em;
+}
+.pp-tagline { margin: 4px 0 0; color: var(--muted, #6b6960); font-size: 12px; }
+
+.pp-title { margin: 44px 0 40px; }
+.pp-kicker {
+  margin: 0 0 10px;
+  color: var(--muted, #6b6960);
+  font-family: var(--mono, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.pp-title h1 {
+  margin: 0 0 24px;
+  font-family: var(--serif, Georgia, serif);
+  font-size: clamp(30px, 5vw, 46px);
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -.03em;
+}
+.pp-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin: 0 0 26px; }
+.pp-meta dt {
+  color: var(--muted, #6b6960);
+  font-family: var(--mono, monospace);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.pp-meta dd { margin: 3px 0 0; font-size: 14px; }
+.pp-summary { margin: 0; font-size: 17px; line-height: 1.6; }
+
+.pp-section { margin: 40px 0; }
+.pp-section h2 {
+  margin: 0 0 14px;
+  color: var(--coral, #e65f45);
+  font-family: var(--mono, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.pp-section p { margin: 0 0 12px; }
+
+.pp-table { width: 100%; border-collapse: collapse; margin-bottom: 22px; font-size: 14px; }
+.pp-table th {
+  padding: 0 8px 8px;
+  border-bottom: 1px solid #ddd8ce;
+  color: var(--muted, #6b6960);
+  font-family: var(--mono, monospace);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  text-align: left;
+}
+.pp-table td { padding: 13px 8px; border-bottom: 1px solid #ece8e0; vertical-align: top; }
+.pp-num { text-align: right; font-variant-numeric: tabular-nums; }
+.pp-amount { font-weight: 700; }
+.pp-detail { display: block; margin-top: 3px; color: var(--muted, #6b6960); font-size: 12px; }
+
+.pp-totals { max-width: 320px; margin: 0 0 0 auto; }
+.pp-totals > div { display: flex; justify-content: space-between; gap: 24px; padding: 5px 0; }
+.pp-totals dt { color: var(--muted, #6b6960); font-size: 13px; }
+.pp-totals dd { margin: 0; font-variant-numeric: tabular-nums; }
+.pp-totals .pp-grand { margin-top: 8px; padding-top: 12px; border-top: 2px solid var(--coral, #e65f45); }
+.pp-totals .pp-grand dt { color: var(--ink, #1a1a1d); font-weight: 700; font-size: 15px; }
+.pp-totals .pp-grand dd { color: var(--coral, #e65f45); font-weight: 700; font-size: 21px; }
+
+.pp-terms p { color: var(--muted, #6b6960); font-size: 13px; }
+.pp-foot {
+  margin-top: 56px;
+  padding-top: 22px;
+  border-top: 1px solid #ddd8ce;
+  color: var(--muted, #6b6960);
+  font-size: 12px;
+  text-align: center;
+}
+.pp-foot p { margin: 3px 0; }
+
+@media print {
+  .pp { max-width: none; padding: 0; font-size: 11pt; }
+  .pp-section { break-inside: avoid; }
+  .pp-table tr { break-inside: avoid; }
+  .pp-foot { position: fixed; bottom: 0; left: 0; right: 0; }
+  @page { margin: 18mm; }
+}

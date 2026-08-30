@@ -6,6 +6,7 @@ import {
   kindLabel,
   lineTotal,
   proposalTotals,
+  visibleItems,
   type Proposal,
 } from "@/lib/proposals";
 
@@ -184,7 +185,8 @@ export async function renderProposalPdf(proposal: Proposal): Promise<Buffer> {
     }
 
     // Line items
-    if (proposal.items.length) {
+    const printableItems = visibleItems(proposal.items);
+  if (printableItems.length) {
       doc.moveDown(1.6);
       if (doc.y > doc.page.height - 220) doc.addPage();
       doc.fillColor(CORAL).font("Helvetica-Bold").fontSize(8)
@@ -218,7 +220,7 @@ export async function renderProposalPdf(proposal: Proposal): Promise<Buffer> {
       doc.moveTo(left, doc.y).lineTo(right, doc.y).strokeColor("#DDD8CE").stroke();
       doc.y += 8;
 
-      for (const item of proposal.items) {
+      for (const item of printableItems) {
         if (doc.y > doc.page.height - 150) doc.addPage();
         const rowY = doc.y;
         doc.fillColor(INK).font("Helvetica-Bold").fontSize(9)
@@ -405,7 +407,8 @@ export async function renderProposalDocx(proposal: Proposal): Promise<Buffer> {
     }
   }
 
-  if (proposal.items.length) {
+  const printableItems = visibleItems(proposal.items);
+  if (printableItems.length) {
     children.push(new Paragraph({ text: "" }));
     children.push(
       new Paragraph({
@@ -423,7 +426,7 @@ export async function renderProposalDocx(proposal: Proposal): Promise<Buffer> {
           cell("Amount", { bold: true, align: "right" }),
         ],
       }),
-      ...proposal.items.map(
+      ...printableItems.map(
         (item) =>
           new TableRow({
             children: [
@@ -543,14 +546,15 @@ export async function renderProposalPptx(proposal: Proposal): Promise<Buffer> {
   }
 
   // Investment slide
-  if (proposal.items.length) {
+  const printableItems = visibleItems(proposal.items);
+  if (printableItems.length) {
     const slide = deck.addSlide();
     slide.addText("Investment", { x: 0.6, y: 0.4, w: 8.8, h: 0.4, color: coral, fontSize: 12, bold: true, charSpacing: 1.5 });
     const header = ["Description", "Qty", "Unit", "Rate", "Amount"].map((text) => ({
       text,
       options: { bold: true, color: "6B6960", fontSize: 10 },
     }));
-    const body = proposal.items.map((item) => [
+    const body = printableItems.map((item) => [
       { text: item.description || "—", options: { fontSize: 10 } },
       { text: String(item.quantity), options: { fontSize: 10, align: "right" as const } },
       { text: item.unit, options: { fontSize: 10 } },

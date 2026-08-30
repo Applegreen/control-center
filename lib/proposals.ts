@@ -118,6 +118,20 @@ export function lineTotal(item: Pick<ProposalItem, "quantity" | "unitRate">) {
   return Math.round((Number(item.quantity) || 0) * (Number(item.unitRate) || 0));
 }
 
+/**
+ * Line items worth printing. A blank row left in the editor should not reach a
+ * client as "—  1  item  R 0,00". Totals are unaffected either way, since an
+ * empty row contributes zero.
+ */
+export function visibleItems(items: readonly ProposalItem[]) {
+  return (items || []).filter(
+    (item) =>
+      (item.description || "").trim() ||
+      (item.detail || "").trim() ||
+      lineTotal(item) !== 0,
+  );
+}
+
 export function proposalTotals(
   proposal: Pick<Proposal, "items" | "vatRate" | "discountRate">,
 ): ProposalTotals {

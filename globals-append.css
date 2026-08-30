@@ -211,6 +211,30 @@
 }
 .pp-foot p { margin: 3px 0; }
 
+/* ---- The client-facing page is always a light document ----
+   A quotation sent to a broadcaster should look like paper and print cleanly,
+   so it does not follow the dashboard's dark theme. Redefining the theme tokens
+   scoped to .pp means every var(--ink) / var(--muted) / var(--coral) inside
+   already resolves to the light value - no rule above needs changing. */
+body:has(.pp) { background: #ffffff; color: #1a1a1d; }
+.pp {
+  color-scheme: light;
+  --paper: #ffffff;
+  --ink: #1a1a1d;
+  --muted: #6b6960;
+  --coral: #e65f45;
+  --coral-dark: #c4472f;
+  --line: #ddd8ce;
+  --surface: #ffffff;
+  --card: #ffffff;
+  background: #ffffff;
+  color: #1a1a1d;
+}
+
+/* Footer lines stack; something in the app shell was laying them out in columns. */
+.pp-foot { display: block !important; columns: auto !important; }
+.pp-foot p { display: block; width: auto; }
+
 @media print {
   .pp { max-width: none; padding: 0; font-size: 11pt; }
   .pp-section { break-inside: avoid; }

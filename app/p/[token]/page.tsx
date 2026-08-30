@@ -8,6 +8,7 @@ import {
   kindLabel,
   lineTotal,
   proposalTotals,
+  visibleItems,
 } from "@/lib/proposals";
 
 // The public, shareable view. Reached by an unguessable token, so it sits outside the
@@ -36,6 +37,7 @@ export default async function PublicProposalPage({ params }: Props) {
   if (!proposal) notFound();
 
   const totals = proposalTotals(proposal);
+  const items = visibleItems(proposal.items);
 
   return (
     <main className="pp">
@@ -99,7 +101,7 @@ export default async function PublicProposalPage({ params }: Props) {
           </section>
         ))}
 
-      {proposal.items.length ? (
+      {items.length ? (
         <section className="pp-section">
           <h2>Investment</h2>
           <table className="pp-table">
@@ -113,7 +115,7 @@ export default async function PublicProposalPage({ params }: Props) {
               </tr>
             </thead>
             <tbody>
-              {proposal.items.map((item) => (
+              {items.map((item) => (
                 <tr key={item.id}>
                   <td>
                     <strong>{item.description || "—"}</strong>

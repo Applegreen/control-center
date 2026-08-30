@@ -22,4 +22,11 @@ export const APP_LINKS: AppLink[] = [
     href: "https://invoices.digitalcharacters.africa",
     check: "http://127.0.0.1:8012",
   },
+  {
+    id: "chat",
+    name: "Open WebUI",
+    description: "Chat with the local model, with visible reasoning",
+    href: "https://chat.digitalcharacters.africa",
+    check: "http://127.0.0.1:8090",
+  },
 ];

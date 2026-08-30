@@ -318,6 +318,15 @@ export function ProposalsView() {
           </label>
         </div>
         <label className="settings-field">
+          <span>Client postal address — one line each, shown in the &ldquo;To:&rdquo; block</span>
+          <textarea
+            rows={4}
+            value={draft.clientAddress}
+            placeholder={"Glen Manor Office Park, 138\nFrikkie De Beer Street\nSuite 1/G Building 4, Menlyn\nPretoria 0081"}
+            onChange={(e) => patch({ clientAddress: e.target.value })}
+          />
+        </label>
+        <label className="settings-field">
           <span>One-line summary</span>
           <textarea rows={2} value={draft.summary} onChange={(e) => patch({ summary: e.target.value })} />
         </label>

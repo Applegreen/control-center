@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getProposalByToken } from "@/lib/server/proposals-db";
-import { STUDIO } from "@/lib/server/proposal-render";
+import { STUDIO, studioAddressLines, studioIdentityLines } from "@/lib/server/proposal-render";
 import {
   formatMoney,
   formatProposalDate,
@@ -39,40 +39,49 @@ export default async function PublicProposalPage({ params }: Props) {
 
   return (
     <main className="pp">
-      <header className="pp-head">
-        <p className="pp-studio">{STUDIO.name.toUpperCase()}</p>
-        <p className="pp-tagline">{STUDIO.tagline}</p>
+      <header className="pp-letterhead">
+        <div className="pp-lh-logo">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/dc-letterhead-logo.png" alt={STUDIO.name} width={118} height={91} />
+          {studioIdentityLines().map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+        </div>
+
+        <div className="pp-lh-studio">
+          {studioAddressLines().map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+          <p className="pp-lh-doc">
+            <strong>
+              {kindLabel(proposal.kind)}: {proposal.number}
+            </strong>
+            <br />
+            ISSUE DATE: {formatProposalDate(proposal.createdAt)}
+            {proposal.validUntil ? (
+              <>
+                <br />
+                VALID UNTIL: {formatProposalDate(proposal.validUntil)}
+              </>
+            ) : null}
+          </p>
+        </div>
+
+        <div className="pp-lh-client">
+          <p className="pp-lh-to">To:</p>
+          {proposal.clientName ? <p className="pp-lh-name">{proposal.clientName}</p> : null}
+          {proposal.clientContact ? <p>{proposal.clientContact}</p> : null}
+          {(proposal.clientAddress || "")
+            .split("\n")
+            .filter((line) => line.trim())
+            .map((line, index) => (
+              <p key={index}>{line.trim()}</p>
+            ))}
+        </div>
       </header>
 
       <section className="pp-title">
-        <p className="pp-kicker">
-          {kindLabel(proposal.kind)} {proposal.number}
-        </p>
         <h1>{proposal.projectTitle || kindLabel(proposal.kind)}</h1>
-        <dl className="pp-meta">
-          {proposal.clientName ? (
-            <div>
-              <dt>Prepared for</dt>
-              <dd>{proposal.clientName}</dd>
-            </div>
-          ) : null}
-          {proposal.clientContact ? (
-            <div>
-              <dt>Attention</dt>
-              <dd>{proposal.clientContact}</dd>
-            </div>
-          ) : null}
-          <div>
-            <dt>Date</dt>
-            <dd>{formatProposalDate(proposal.createdAt)}</dd>
-          </div>
-          {proposal.validUntil ? (
-            <div>
-              <dt>Valid until</dt>
-              <dd>{formatProposalDate(proposal.validUntil)}</dd>
-            </div>
-          ) : null}
-        </dl>
         {proposal.summary ? <p className="pp-summary">{proposal.summary}</p> : null}
       </section>
 
@@ -157,10 +166,11 @@ export default async function PublicProposalPage({ params }: Props) {
       ) : null}
 
       <footer className="pp-foot">
-        <p>{STUDIO.address.join(" · ")}</p>
+        <p>{studioAddressLines().join(" · ")}</p>
         <p>
           {STUDIO.email} · {STUDIO.phone} · {STUDIO.site}
         </p>
+        <p>{studioIdentityLines().join(" · ")}</p>
       </footer>
     </main>
   );

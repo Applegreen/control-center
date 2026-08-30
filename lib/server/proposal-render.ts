@@ -15,14 +15,49 @@ import {
 // already in use. These libraries lay the document out programmatically instead, so the
 // PDF is clean and correct but not identical to the web version.
 
+import path from "node:path";
+import { readFileSync } from "node:fs";
+
 export const STUDIO = {
   name: "Digital Characters",
   tagline: "Animation · Visual effects · Post production",
-  address: ["The Media Mill", "7 Quince Street", "Mill Park", "Johannesburg, 2092"],
+  address: ["19 Arlanada Crescent", "Highveld x12", "Centurion", "0157"],
   email: "info@digitalcharacters.africa",
   phone: "076 320 0950",
   site: "digitalcharacters.africa",
+  registration: "2014/164830/07",
+  // Set DC_VAT_NUMBER in /etc/control-center.env. Left blank, the VAT line is
+  // simply omitted rather than printing an empty label on a client document.
+  vat: (process.env.DC_VAT_NUMBER || "").trim(),
 };
+
+const LOGO_PATH = path.join(process.cwd(), "public", "dc-letterhead-logo.png");
+
+let logoCache: Buffer | null | undefined;
+
+/** Reads the letterhead logo once. Returns null if it is missing, so a document
+ *  still renders (without the mark) rather than failing outright. */
+export function letterheadLogo(): Buffer | null {
+  if (logoCache === undefined) {
+    try {
+      logoCache = readFileSync(LOGO_PATH);
+    } catch {
+      logoCache = null;
+    }
+  }
+  return logoCache;
+}
+
+export function studioAddressLines() {
+  return [...STUDIO.address];
+}
+
+export function studioIdentityLines() {
+  return [
+    `Reg: ${STUDIO.registration}`,
+    ...(STUDIO.vat ? [`VAT: ${STUDIO.vat}`] : []),
+  ];
+}
 
 const CORAL = "#E65F45";
 const INK = "#1A1A1D";
@@ -54,29 +89,83 @@ export async function renderProposalPdf(proposal: Proposal): Promise<Buffer> {
     const right = doc.page.width - doc.page.margins.right;
     const width = right - left;
 
-    // Header
-    doc.fillColor(CORAL).font("Helvetica-Bold").fontSize(9)
-      .text(STUDIO.name.toUpperCase(), left, 48, { characterSpacing: 2 });
-    doc.fillColor(MUTED).font("Helvetica").fontSize(8).text(STUDIO.tagline, { characterSpacing: 0.4 });
+    // ---- Letterhead: logo | studio + document | client ----
+    const TOP = 46;
+    const logoW = 118;
+    const colStudioX = left + logoW + 34;
+    const colStudioW = 150;
+    const colClientX = colStudioX + colStudioW + 26;
+    const colClientW = right - colClientX;
 
-    doc.moveDown(1.6);
-    doc.fillColor(INK).font("Helvetica-Bold").fontSize(24)
-      .text(proposal.projectTitle || documentTitle(proposal), { width });
-    doc.fillColor(MUTED).font("Helvetica").fontSize(9)
-      .text(`${kindLabel(proposal.kind)} ${proposal.number}`);
+    const logo = letterheadLogo();
+    let leftBottom = TOP;
+    if (logo) {
+      doc.image(logo, left, TOP, { width: logoW });
+      leftBottom = TOP + logoW * (307 / 400) + 8;
+    } else {
+      doc.fillColor(CORAL).font("Helvetica-Bold").fontSize(11)
+        .text(STUDIO.name.toUpperCase(), left, TOP, { width: logoW, characterSpacing: 1.5 });
+      leftBottom = doc.y + 6;
+    }
+    doc.font("Helvetica-Bold").fontSize(7).fillColor(INK);
+    studioIdentityLines().forEach((line) => {
+      doc.text(line, left, leftBottom, { width: logoW });
+      leftBottom = doc.y;
+    });
 
-    const meta = [
-      proposal.clientName ? `Prepared for: ${proposal.clientName}` : "",
-      proposal.clientContact ? `Attention: ${proposal.clientContact}` : "",
-      `Date: ${formatProposalDate(proposal.createdAt)}`,
-      proposal.validUntil ? `Valid until: ${formatProposalDate(proposal.validUntil)}` : "",
-    ].filter(Boolean);
-    doc.moveDown(0.5);
-    meta.forEach((line) => doc.fillColor(MUTED).fontSize(9).text(line));
+    // middle column
+    doc.font("Helvetica").fontSize(9).fillColor(MUTED);
+    let studioY = TOP;
+    studioAddressLines().forEach((line) => {
+      doc.text(line, colStudioX, studioY, { width: colStudioW });
+      studioY = doc.y;
+    });
+    studioY += 10;
+    const docLines: [string, string][] = [
+      [`${kindLabel(proposal.kind)}:`, proposal.number],
+      ["ISSUE DATE:", formatProposalDate(proposal.createdAt)],
+    ];
+    if (proposal.validUntil) docLines.push(["VALID UNTIL:", formatProposalDate(proposal.validUntil)]);
+    docLines.forEach(([label, value]) => {
+      doc.font("Helvetica-Bold").fontSize(8.5).fillColor(INK)
+        .text(label, colStudioX, studioY, { width: colStudioW, continued: true });
+      doc.font("Helvetica").fillColor(MUTED).text(` ${value}`);
+      studioY = doc.y + 1;
+    });
+
+    // right column
+    let clientY = TOP;
+    doc.font("Helvetica-Bold").fontSize(9).fillColor(INK)
+      .text("To:", colClientX, clientY, { width: colClientW });
+    clientY = doc.y + 1;
+    if (proposal.clientName) {
+      doc.font("Helvetica-Bold").fontSize(9.5).fillColor(INK)
+        .text(proposal.clientName, colClientX, clientY, { width: colClientW });
+      clientY = doc.y;
+    }
+    doc.font("Helvetica").fontSize(9).fillColor(MUTED);
+    if (proposal.clientContact) {
+      doc.text(proposal.clientContact, colClientX, clientY, { width: colClientW });
+      clientY = doc.y;
+    }
+    (proposal.clientAddress || "").split("\n").filter((l) => l.trim()).forEach((line) => {
+      doc.text(line.trim(), colClientX, clientY, { width: colClientW });
+      clientY = doc.y;
+    });
+
+    // rule beneath the tallest column
+    const ruleY = Math.max(leftBottom, studioY, clientY) + 16;
+    doc.moveTo(left, ruleY).lineTo(right, ruleY).lineWidth(1).strokeColor(CORAL).stroke();
+    doc.lineWidth(1);
+    doc.y = ruleY + 26;
+
+    doc.fillColor(INK).font("Helvetica-Bold").fontSize(22)
+      .text(proposal.projectTitle || documentTitle(proposal), left, doc.y, { width });
 
     if (proposal.summary) {
-      doc.moveDown(1);
-      doc.fillColor(INK).font("Helvetica").fontSize(11).text(proposal.summary, { width, lineGap: 3 });
+      doc.moveDown(0.7);
+      doc.fillColor(INK).font("Helvetica").fontSize(11)
+        .text(proposal.summary, left, doc.y, { width, lineGap: 3 });
     }
 
     // Narrative
@@ -189,7 +278,8 @@ export async function renderProposalPdf(proposal: Proposal): Promise<Buffer> {
     for (let index = 0; index < range.count; index += 1) {
       doc.switchToPage(range.start + index);
       doc.fillColor(MUTED).font("Helvetica").fontSize(7.5).text(
-        `${STUDIO.name} · ${STUDIO.email} · ${STUDIO.phone} · ${STUDIO.site}`,
+        `${STUDIO.name} (Reg ${STUDIO.registration}${STUDIO.vat ? ` · VAT ${STUDIO.vat}` : ""}) · ` +
+          `${STUDIO.email} · ${STUDIO.phone} · ${STUDIO.site}`,
         left,
         doc.page.height - 46,
         { width, align: "center" },
@@ -205,11 +295,12 @@ export async function renderProposalPdf(proposal: Proposal): Promise<Buffer> {
 export async function renderProposalDocx(proposal: Proposal): Promise<Buffer> {
   const {
     Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell,
-    WidthType, AlignmentType, BorderStyle,
+    WidthType, AlignmentType, BorderStyle, ImageRun,
   } = await import("docx");
   const totals = proposalTotals(proposal);
 
   const noBorder = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
+  const allOpen = { top: noBorder, bottom: noBorder, left: noBorder, right: noBorder };
   const cell = (text: string, opts: { bold?: boolean; align?: "left" | "right" } = {}) =>
     new TableCell({
       borders: { top: noBorder, bottom: { style: BorderStyle.SINGLE, size: 1, color: "DDD8CE" }, left: noBorder, right: noBorder },
@@ -222,30 +313,76 @@ export async function renderProposalDocx(proposal: Proposal): Promise<Buffer> {
     });
 
   // Body blocks are a mix of paragraphs and one table, so the array holds both.
-  const children: (InstanceType<typeof Paragraph> | InstanceType<typeof Table>)[] = [
+  const small = (text: string, opts: { bold?: boolean; color?: string; size?: number } = {}) =>
     new Paragraph({
-      children: [new TextRun({ text: STUDIO.name.toUpperCase(), bold: true, color: "E65F45", size: 18 })],
+      children: [
+        new TextRun({ text, bold: opts.bold, color: opts.color ?? "6B6960", size: opts.size ?? 17 }),
+      ],
+    });
+
+  // Letterhead: logo | studio + document details | client. Borderless table so
+  // Word keeps the three columns side by side the way the printed version does.
+  const logo = letterheadLogo();
+  const logoCell: InstanceType<typeof Paragraph>[] = logo
+    ? [
+        new Paragraph({
+          children: [
+            new ImageRun({
+              type: "png",
+              data: logo,
+              transformation: { width: 118, height: 91 },
+            }),
+          ],
+        }),
+      ]
+    : [small(STUDIO.name.toUpperCase(), { bold: true, color: "E65F45", size: 20 })];
+  for (const line of studioIdentityLines()) {
+    logoCell.push(small(line, { bold: true, color: "1A1A1D", size: 13 }));
+  }
+
+  const middleCell = [
+    ...studioAddressLines().map((line) => small(line)),
+    small(""),
+    small(`${kindLabel(proposal.kind)}: ${proposal.number}`, { bold: true, color: "1A1A1D" }),
+    small(`ISSUE DATE: ${formatProposalDate(proposal.createdAt)}`, { color: "1A1A1D" }),
+    ...(proposal.validUntil
+      ? [small(`VALID UNTIL: ${formatProposalDate(proposal.validUntil)}`, { color: "1A1A1D" })]
+      : []),
+  ];
+
+  const clientCell = [
+    small("To:", { bold: true, color: "1A1A1D" }),
+    ...(proposal.clientName ? [small(proposal.clientName, { bold: true, color: "1A1A1D", size: 19 })] : []),
+    ...(proposal.clientContact ? [small(proposal.clientContact)] : []),
+    ...(proposal.clientAddress || "")
+      .split("\n")
+      .filter((line) => line.trim())
+      .map((line) => small(line.trim())),
+  ];
+
+  const openCell = (paragraphs: InstanceType<typeof Paragraph>[], width: number) =>
+    new TableCell({ borders: allOpen, width: { size: width, type: WidthType.PERCENTAGE }, children: paragraphs });
+
+  const children: (InstanceType<typeof Paragraph> | InstanceType<typeof Table>)[] = [
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: { ...allOpen, insideHorizontal: noBorder, insideVertical: noBorder },
+      rows: [
+        new TableRow({
+          children: [openCell(logoCell, 26), openCell(middleCell, 37), openCell(clientCell, 37)],
+        }),
+      ],
     }),
-    new Paragraph({ children: [new TextRun({ text: STUDIO.tagline, color: "6B6960", size: 16 })] }),
+    new Paragraph({
+      border: { bottom: { style: BorderStyle.SINGLE, size: 8, color: "E65F45" } },
+      children: [new TextRun({ text: "" })],
+    }),
     new Paragraph({ text: "" }),
     new Paragraph({
       heading: HeadingLevel.HEADING_1,
-      children: [new TextRun({ text: proposal.projectTitle || documentTitle(proposal), bold: true, size: 44 })],
-    }),
-    new Paragraph({
-      children: [new TextRun({ text: `${kindLabel(proposal.kind)} ${proposal.number}`, color: "6B6960", size: 18 })],
+      children: [new TextRun({ text: proposal.projectTitle || documentTitle(proposal), bold: true, size: 40 })],
     }),
   ];
-
-  const meta = [
-    proposal.clientName ? `Prepared for: ${proposal.clientName}` : "",
-    proposal.clientContact ? `Attention: ${proposal.clientContact}` : "",
-    `Date: ${formatProposalDate(proposal.createdAt)}`,
-    proposal.validUntil ? `Valid until: ${formatProposalDate(proposal.validUntil)}` : "",
-  ].filter(Boolean);
-  for (const line of meta) {
-    children.push(new Paragraph({ children: [new TextRun({ text: line, color: "6B6960", size: 18 })] }));
-  }
 
   if (proposal.summary) {
     children.push(new Paragraph({ text: "" }));
@@ -332,7 +469,9 @@ export async function renderProposalDocx(proposal: Proposal): Promise<Buffer> {
       alignment: AlignmentType.CENTER,
       children: [
         new TextRun({
-          text: `${STUDIO.name} · ${STUDIO.email} · ${STUDIO.phone} · ${STUDIO.site}`,
+          text:
+            `${STUDIO.name} (Reg ${STUDIO.registration}${STUDIO.vat ? ` · VAT ${STUDIO.vat}` : ""}) · ` +
+            `${STUDIO.email} · ${STUDIO.phone} · ${STUDIO.site}`,
           color: "6B6960",
           size: 15,
         }),
@@ -359,13 +498,20 @@ export async function renderProposalPptx(proposal: Proposal): Promise<Buffer> {
   const cream = "F6F4EF";
 
   // Title slide
+  const logo = letterheadLogo();
+  const logoData = logo ? `image/png;base64,${logo.toString("base64")}` : null;
+
   const title = deck.addSlide();
   title.background = { color: dark };
-  title.addText(STUDIO.name.toUpperCase(), {
-    x: 0.6, y: 0.5, w: 8.8, h: 0.3, color: coral, fontSize: 11, bold: true, charSpacing: 2,
-  });
+  if (logoData) {
+    title.addImage({ data: logoData, x: 0.6, y: 0.45, w: 1.5, h: 1.15 });
+  } else {
+    title.addText(STUDIO.name.toUpperCase(), {
+      x: 0.6, y: 0.5, w: 8.8, h: 0.3, color: coral, fontSize: 11, bold: true, charSpacing: 2,
+    });
+  }
   title.addText(proposal.projectTitle || documentTitle(proposal), {
-    x: 0.6, y: 1.6, w: 8.8, h: 1.6, color: cream, fontSize: 40, bold: true,
+    x: 0.6, y: 1.9, w: 8.8, h: 1.4, color: cream, fontSize: 38, bold: true,
   });
   title.addText(
     [
@@ -426,8 +572,16 @@ export async function renderProposalPptx(proposal: Proposal): Promise<Buffer> {
   closing.background = { color: dark };
   closing.addText("Thank you", { x: 0.6, y: 1.8, w: 8.8, h: 0.9, color: cream, fontSize: 34, bold: true });
   closing.addText(
-    [STUDIO.email, STUDIO.phone, STUDIO.site, ...STUDIO.address].join("\n"),
-    { x: 0.6, y: 2.9, w: 8.8, h: 1.8, color: "8A8880", fontSize: 12, lineSpacingMultiple: 1.3 },
+    [
+      STUDIO.email,
+      STUDIO.phone,
+      STUDIO.site,
+      "",
+      ...studioAddressLines(),
+      "",
+      ...studioIdentityLines(),
+    ].join("\n"),
+    { x: 0.6, y: 2.9, w: 8.8, h: 2.2, color: "8A8880", fontSize: 11, lineSpacingMultiple: 1.25 },
   );
 
   const output = (await deck.write({ outputType: "nodebuffer" })) as Buffer;

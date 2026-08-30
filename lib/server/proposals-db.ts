@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS proposals (
   client_name    TEXT NOT NULL DEFAULT '',
   client_contact TEXT NOT NULL DEFAULT '',
   client_email   TEXT NOT NULL DEFAULT '',
+  client_address TEXT NOT NULL DEFAULT '',
   project_title  TEXT NOT NULL DEFAULT '',
   summary        TEXT NOT NULL DEFAULT '',
   currency       TEXT NOT NULL DEFAULT 'ZAR',
@@ -91,6 +92,24 @@ export function getProposalsDatabase() {
     const database = new DatabaseSync(path.join(directory, "proposals.sqlite"));
     database.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
     database.exec(SCHEMA);
+
+    // CREATE TABLE IF NOT EXISTS does nothing to a table that already exists, so
+    // columns added after the first release need adding explicitly. Additive only -
+    // nothing here can drop or rewrite existing data.
+    const columns = new Set(
+      database
+        .prepare("PRAGMA table_info(proposals)")
+        .all()
+        .map((row) => (row as unknown as { name: string }).name),
+    );
+    for (const [column, definition] of [
+      ["client_address", "TEXT NOT NULL DEFAULT ''"],
+    ] as const) {
+      if (!columns.has(column)) {
+        database.exec(`ALTER TABLE proposals ADD COLUMN ${column} ${definition}`);
+      }
+    }
+
     globalThis.controlCenterProposalsDatabase = database;
   }
   return globalThis.controlCenterProposalsDatabase;
@@ -100,7 +119,7 @@ export function getProposalsDatabase() {
 
 type ProposalRow = {
   id: string; token: string; kind: string; number: string; status: string;
-  client_name: string; client_contact: string; client_email: string;
+  client_name: string; client_contact: string; client_email: string; client_address: string;
   project_title: string; summary: string; currency: string;
   vat_rate: number; discount_rate: number; valid_until: string; terms: string;
   created_at: string; updated_at: string; sent_at: string;
@@ -124,6 +143,7 @@ function mapProposal(row: ProposalRow, sections: ProposalSection[], items: Propo
     clientName: row.client_name,
     clientContact: row.client_contact,
     clientEmail: row.client_email,
+    clientAddress: row.client_address || "",
     projectTitle: row.project_title,
     summary: row.summary,
     currency: row.currency || "ZAR",
@@ -297,6 +317,7 @@ const TEXT_COLUMNS: Record<string, string> = {
   clientName: "client_name",
   clientContact: "client_contact",
   clientEmail: "client_email",
+  clientAddress: "client_address",
   projectTitle: "project_title",
   summary: "summary",
   currency: "currency",
@@ -398,6 +419,7 @@ export function duplicateProposal(id: string): Proposal | null {
   return updateProposal(copy.id, {
     clientContact: source.clientContact,
     clientEmail: source.clientEmail,
+    clientAddress: source.clientAddress,
     summary: source.summary,
     currency: source.currency,
     vatRate: source.vatRate,

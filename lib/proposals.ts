@@ -61,6 +61,8 @@ export type Proposal = {
   clientName: string;
   clientContact: string;
   clientEmail: string;
+  /** Multi-line postal address, shown in the "To:" block of the letterhead. */
+  clientAddress: string;
   projectTitle: string;
   summary: string;
   currency: string;

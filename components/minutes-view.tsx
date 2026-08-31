@@ -47,12 +47,13 @@ function formatBytes(bytes: number) {
  */
 function uploadWithProgress(
   url: string,
-  form: FormData,
+  file: File,
   onProgress: (progress: UploadProgress) => void,
 ): Promise<{ note?: string; error?: string }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", url);
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable) return;
       onProgress({
@@ -76,7 +77,9 @@ function uploadWithProgress(
     };
     xhr.onerror = () => reject(new Error("Upload failed — the connection dropped."));
     xhr.ontimeout = () => reject(new Error("Upload timed out."));
-    xhr.send(form);
+    // Raw body, not multipart: the server streams it straight to disk without
+    // buffering, so file size is limited by disk rather than memory.
+    xhr.send(file);
   });
 }
 
@@ -228,11 +231,9 @@ export function MinutesView() {
     setError("");
     setUpload({ percent: 0, loaded: 0, total: file.size });
     try {
-      const form = new FormData();
-      form.append("file", file);
       const payload = await uploadWithProgress(
-        `/api/minutes/${draft.id}/transcribe`,
-        form,
+        `/api/minutes/${draft.id}/transcribe?filename=${encodeURIComponent(file.name)}`,
+        file,
         setUpload,
       );
       setNotice(payload.note || "Transcription started.");

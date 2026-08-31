@@ -24,13 +24,24 @@ const SUMMARY_TIMEOUT_MS = 15 * 60 * 1000;
 
 export type TranscriptionResult = { text: string; duration: number };
 
-export async function transcribeAudio(
-  audio: Uint8Array,
+/**
+ * Transcribe a recording that is already on disk.
+ *
+ * openAsBlob gives us a Blob backed by the file rather than by memory, so a 2GB
+ * recording costs 2GB of disk and almost no RAM. The earlier version read the
+ * whole file into a Uint8Array and held it for the entire job - fine for a voice
+ * memo, fatal for a long meeting on a box with ~1GB free.
+ */
+export async function transcribeFile(
+  filePath: string,
   filename: string,
   signal?: AbortSignal,
 ): Promise<TranscriptionResult> {
+  const { openAsBlob } = await import("node:fs");
+  const blob = await openAsBlob(filePath);
+
   const form = new FormData();
-  form.append("file", new Blob([audio as BlobPart]), filename || "recording.m4a");
+  form.append("file", blob, filename || "recording.m4a");
   form.append("model", "whisper-1");
   // verbose_json gives us the duration and per-segment speaker labels.
   form.append("response_format", "verbose_json");
@@ -80,8 +91,10 @@ export async function transcribeAudio(
 }
 
 /** Fire-and-forget. Marks the minute as transcribing, then writes the result
- *  (or an error note) when Whisper finishes. */
-export function startTranscription(minuteId: string, audio: Uint8Array, filename: string) {
+ *  (or an error note) when Whisper finishes. The temp file is always removed,
+ *  including on failure - otherwise a few failed uploads would quietly fill the
+ *  disk with orphaned recordings. */
+export function startTranscription(minuteId: string, filePath: string, filename: string) {
   updateMinute(minuteId, { status: "transcribing", audioFilename: filename });
 
   const controller = new AbortController();
@@ -89,7 +102,7 @@ export function startTranscription(minuteId: string, audio: Uint8Array, filename
 
   void (async () => {
     try {
-      const result = await transcribeAudio(audio, filename, controller.signal);
+      const result = await transcribeFile(filePath, filename, controller.signal);
       updateMinute(minuteId, {
         transcript: result.text,
         audioDuration: result.duration,
@@ -106,6 +119,12 @@ export function startTranscription(minuteId: string, audio: Uint8Array, filename
       });
     } finally {
       clearTimeout(timer);
+      try {
+        const { unlink } = await import("node:fs/promises");
+        await unlink(filePath);
+      } catch {
+        // Already gone, or never written. Nothing useful to do here.
+      }
     }
   })();
 }

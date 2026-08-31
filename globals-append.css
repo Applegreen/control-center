@@ -126,6 +126,58 @@
   .dc-total-lines { min-width: 0; }
 }
 
+/* ============================================================ DC-MINUTES
+   Meeting minutes tab. Reuses the proposal panel/table styling above.
+   ============================================================ */
+
+.dc-minutes-tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+.dc-minutes-tabs button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.dc-minutes-tabs button.active {
+  border-color: var(--coral);
+  background: var(--coral);
+  color: #fff;
+}
+
+.dc-task-list { margin: 0; padding: 0; list-style: none; }
+.dc-task-list > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.dc-task-list > li:last-child { border-bottom: none; }
+.dc-task-check { display: flex; align-items: flex-start; gap: 11px; cursor: pointer; }
+.dc-task-check input[type="checkbox"] { width: 16px !important; margin-top: 2px; flex: none; }
+.dc-task-check strong { display: block; font-size: 13px; font-weight: 600; }
+.dc-task-right { display: flex; align-items: center; gap: 14px; white-space: nowrap; }
+.dc-task-box { width: 16px !important; }
+
+.dc-hidden-file { display: none !important; }
+
+.dc-proposed { border-color: var(--coral); }
+.dc-proposed-text {
+  margin: 0 0 14px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: var(--surface-medium, var(--surface));
+  font-size: 14px;
+  line-height: 1.6;
+}
+.dc-proposed-tasks { margin-top: 16px; }
+.dc-proposed-tasks strong { font-weight: 600; }
+
 /* ============================================================ DC-PROPOSAL-PUBLIC
    The shareable /p/[token] page. Standalone styling - a client opens this
    without the dashboard chrome around it. Print rules included so

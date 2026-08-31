@@ -31,6 +31,55 @@ const TONE_CLASS: Record<string, string> = {
   done: "label label-positive",
 };
 
+type UploadProgress = { percent: number; loaded: number; total: number };
+
+function formatBytes(bytes: number) {
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)}GB`;
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)}MB`;
+  if (bytes >= 1e3) return `${Math.round(bytes / 1e3)}KB`;
+  return `${bytes}B`;
+}
+
+/**
+ * fetch() gives no upload progress - there is no onprogress equivalent and the
+ * request streams opaquely. XMLHttpRequest still does, so it is the right tool
+ * here despite being the older API.
+ */
+function uploadWithProgress(
+  url: string,
+  form: FormData,
+  onProgress: (progress: UploadProgress) => void,
+): Promise<{ note?: string; error?: string }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return;
+      onProgress({
+        percent: Math.round((event.loaded / event.total) * 100),
+        loaded: event.loaded,
+        total: event.total,
+      });
+    };
+    xhr.onload = () => {
+      let payload: { note?: string; error?: string } = {};
+      try {
+        payload = JSON.parse(xhr.responseText);
+      } catch {
+        // A non-JSON body means something upstream rejected it - nginx returns
+        // an HTML page for 413 Request Entity Too Large, for instance.
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(payload);
+      else if (xhr.status === 413)
+        reject(new Error("The server rejected the file as too large."));
+      else reject(new Error(payload.error || `Upload failed (${xhr.status}).`));
+    };
+    xhr.onerror = () => reject(new Error("Upload failed — the connection dropped."));
+    xhr.ontimeout = () => reject(new Error("Upload timed out."));
+    xhr.send(form);
+  });
+}
+
 export function MinutesView() {
   const [minutes, setMinutes] = useState<MinuteSummaryRow[]>([]);
   const [openTasks, setOpenTasks] = useState<OpenTask[]>([]);
@@ -43,6 +92,7 @@ export function MinutesView() {
   const [confirmDelete, setConfirmDelete] = useState("");
   const [tab, setTab] = useState<"meetings" | "deadlines">("meetings");
   const [proposed, setProposed] = useState<{ summary: string; tasks: Omit<MinuteTask, "id" | "position" | "done">[] } | null>(null);
+  const [upload_, setUpload] = useState<UploadProgress | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
 
   const refresh = useCallback(async () => {
@@ -176,15 +226,15 @@ export function MinutesView() {
     if (!draft) return;
     setBusy(true);
     setError("");
+    setUpload({ percent: 0, loaded: 0, total: file.size });
     try {
       const form = new FormData();
       form.append("file", file);
-      const response = await fetch(`/api/minutes/${draft.id}/transcribe`, {
-        method: "POST",
-        body: form,
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Upload failed.");
+      const payload = await uploadWithProgress(
+        `/api/minutes/${draft.id}/transcribe`,
+        form,
+        setUpload,
+      );
       setNotice(payload.note || "Transcription started.");
       await open(draft.id);
       await refresh();
@@ -192,6 +242,7 @@ export function MinutesView() {
       setError(caught instanceof Error ? caught.message : "Upload failed.");
     } finally {
       setBusy(false);
+      setUpload(null);
       if (fileInput.current) fileInput.current.value = "";
     }
   }
@@ -510,7 +561,7 @@ export function MinutesView() {
               disabled={busy || transcribing}
               onClick={() => fileInput.current?.click()}
             >
-              {transcribing ? "Transcribing…" : "Upload recording"}
+              {upload_ ? "Uploading…" : transcribing ? "Transcribing…" : "Upload recording"}
             </button>
             <button
               className="button button-ghost"
@@ -521,6 +572,37 @@ export function MinutesView() {
             </button>
           </div>
         </div>
+
+        {upload_ ? (
+          <div className="dc-upload">
+            <div className="dc-upload-head">
+              <span>
+                {upload_.percent < 100
+                  ? "Uploading recording"
+                  : "Upload complete — starting transcription"}
+              </span>
+              <strong>{upload_.percent}%</strong>
+            </div>
+            <div
+              className="dc-upload-track"
+              role="progressbar"
+              aria-valuenow={upload_.percent}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
+              <div
+                className={`dc-upload-fill${upload_.percent >= 100 ? " is-done" : ""}`}
+                style={{ width: `${upload_.percent}%` }}
+              />
+            </div>
+            <p className="dc-sub">
+              {formatBytes(upload_.loaded)} of {formatBytes(upload_.total)}
+              {upload_.percent >= 100
+                ? " · the server is reading the file, this can take a moment for large recordings"
+                : ""}
+            </p>
+          </div>
+        ) : null}
 
         {transcribing ? (
           <p className="empty-state">

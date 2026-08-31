@@ -166,6 +166,42 @@
 
 .dc-hidden-file { display: none !important; }
 
+/* Upload progress. 100% means the bytes have left the browser - the server may
+   still be reading them, hence the separate wording at that point. */
+.dc-upload { margin: 4px 0 20px; }
+.dc-upload-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.dc-upload-head strong {
+  color: var(--coral);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.dc-upload-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.dc-upload-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--coral);
+  transition: width .2s ease;
+}
+.dc-upload-fill.is-done {
+  background: linear-gradient(90deg, var(--coral) 0%, var(--coral) 60%, var(--muted) 100%);
+  animation: dc-upload-pulse 1.4s ease-in-out infinite;
+}
+@keyframes dc-upload-pulse { 50% { opacity: .55; } }
+.dc-upload .dc-sub { margin: 7px 0 0; }
+
 .dc-proposed { border-color: var(--coral); }
 .dc-proposed-text {
   margin: 0 0 14px;

@@ -107,6 +107,16 @@
 .dc-export-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0 20px; }
 .dc-export-row a { text-decoration: none; }
 
+/* Rate card picker sits inline with the Add item button */
+.dc-rate-picker {
+  max-width: 320px;
+  min-height: 40px;
+  padding: 0 11px !important;
+  border-radius: 8px;
+  font-size: 12px !important;
+}
+.dc-proposal-panel .panel-header .toolbar-actions { display: flex; gap: 10px; align-items: center; }
+
 @media (max-width: 780px) {
   .dc-proposal-table thead { display: none; }
   .dc-proposal-table td { display: block; padding: 6px 0; border: none; }

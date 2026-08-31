@@ -19,6 +19,7 @@ import {
   type ProposalSection,
   type ProposalStatus,
   type ProposalSummary,
+  type RateCardEntry,
 } from "@/lib/proposals";
 
 type Draft = Proposal;
@@ -38,6 +39,8 @@ export function ProposalsView() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [confirmDelete, setConfirmDelete] = useState("");
+  const [rateCard, setRateCard] = useState<RateCardEntry[]>([]);
+  const [showRates, setShowRates] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -46,6 +49,7 @@ export function ProposalsView() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Could not load proposals.");
       setList(payload.proposals || []);
+      setRateCard(payload.rateCard || []);
       setError("");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not load proposals.");
@@ -149,6 +153,54 @@ export function ProposalsView() {
     setDraft((current) => (current ? { ...current, ...changes } : current));
   }
 
+  // ---------- rate card ----------
+  // One shared list of standard rates, saved through the same endpoint as
+  // proposals since it is a single collection rather than a per-proposal resource.
+
+  async function saveRateCard(entries: RateCardEntry[]) {
+    setBusy(true);
+    try {
+      const response = await fetch("/api/proposals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rateCard: entries.map(({ category, description, unit, defaultRate }) => ({
+            category,
+            description,
+            unit,
+            defaultRate,
+          })),
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Could not save the rate card.");
+      setRateCard(payload.rateCard || []);
+      setNotice("Rate card saved.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not save the rate card.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function addRateFromCard(entry: RateCardEntry) {
+    if (!draft) return;
+    patch({
+      items: [
+        ...draft.items,
+        {
+          id: `rate-${entry.id}-${Date.now()}`,
+          position: draft.items.length,
+          description: entry.description,
+          detail: "",
+          quantity: 1,
+          unit: entry.unit,
+          unitRate: entry.defaultRate,
+        },
+      ],
+    });
+  }
+
   const totals = useMemo(
     () =>
       draft
@@ -245,6 +297,128 @@ export function ProposalsView() {
               </tbody>
             </table>
           )}
+        </div>
+
+        <div className="panel dc-proposal-panel">
+          <div className="panel-header">
+            <div>
+              <h3>Rate card</h3>
+              <p className="page-description">
+                Your standard rates. Saved once, then inserted into any proposal with one click.
+              </p>
+            </div>
+            <button className="button button-ghost" onClick={() => setShowRates((open) => !open)}>
+              {showRates ? "Hide" : `Show (${rateCard.length})`}
+            </button>
+          </div>
+
+          {showRates ? (
+            <>
+              {rateCard.length === 0 ? (
+                <p className="empty-state">
+                  No rates saved yet. Add your standard per-minute, per-day or per-episode
+                  figures below and they become one-click line items.
+                </p>
+              ) : (
+                <table className="dc-proposal-table dc-items">
+                  <thead>
+                    <tr>
+                      <th>Category</th>
+                      <th>Description</th>
+                      <th>Unit</th>
+                      <th className="dc-num">Rate</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rateCard.map((entry, index) => {
+                      const update = (changes: Partial<RateCardEntry>) => {
+                        const next = [...rateCard];
+                        next[index] = { ...entry, ...changes };
+                        setRateCard(next);
+                      };
+                      return (
+                        <tr key={entry.id}>
+                          <td>
+                            <input
+                              value={entry.category}
+                              placeholder="e.g. Animation"
+                              onChange={(e) => update({ category: e.target.value })}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              value={entry.description}
+                              placeholder="e.g. 2D animation production"
+                              onChange={(e) => update({ description: e.target.value })}
+                            />
+                          </td>
+                          <td>
+                            <select value={entry.unit} onChange={(e) => update({ unit: e.target.value })}>
+                              {PROPOSAL_UNITS.map((unit) => (
+                                <option key={unit} value={unit}>
+                                  {unit}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="dc-num">
+                            <input
+                              className="dc-rate"
+                              defaultValue={(entry.defaultRate / 100).toFixed(2)}
+                              onBlur={(e) => {
+                                const cents = parseMoneyToCents(e.target.value);
+                                e.target.value = (cents / 100).toFixed(2);
+                                update({ defaultRate: cents });
+                              }}
+                            />
+                          </td>
+                          <td>
+                            <button
+                              className="text-button dc-danger"
+                              onClick={() => setRateCard(rateCard.filter((_, i) => i !== index))}
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+
+              <div className="dc-export-row">
+                <button
+                  className="button button-ghost"
+                  onClick={() =>
+                    setRateCard([
+                      ...rateCard,
+                      {
+                        id: `new-${Date.now()}`,
+                        category: "",
+                        description: "",
+                        unit: "minute",
+                        defaultRate: 0,
+                      },
+                    ])
+                  }
+                >
+                  Add rate
+                </button>
+                <button
+                  className="button button-primary"
+                  disabled={busy}
+                  onClick={() => saveRateCard(rateCard)}
+                >
+                  {busy ? "Saving…" : "Save rate card"}
+                </button>
+              </div>
+              <p className="page-description">
+                Rates are saved as a whole list — remember to save after adding or removing.
+              </p>
+            </>
+          ) : null}
         </div>
       </div>
     );
@@ -409,27 +583,49 @@ export function ProposalsView() {
       <div className="panel dc-proposal-panel">
         <div className="panel-header">
           <h3>Line items</h3>
-          <button
-            className="button button-ghost"
-            onClick={() =>
-              patch({
-                items: [
-                  ...draft.items,
-                  {
-                    id: `new-${Date.now()}`,
-                    position: draft.items.length,
-                    description: "",
-                    detail: "",
-                    quantity: 1,
-                    unit: "item",
-                    unitRate: 0,
-                  },
-                ],
-              })
-            }
-          >
-            Add item
-          </button>
+          <div className="toolbar-actions">
+            {rateCard.length > 0 ? (
+              <select
+                className="dc-rate-picker"
+                value=""
+                onChange={(e) => {
+                  const entry = rateCard.find((row) => row.id === e.target.value);
+                  if (entry) addRateFromCard(entry);
+                  e.target.value = "";
+                }}
+              >
+                <option value="">Add from rate card…</option>
+                {rateCard.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.category ? `${entry.category} — ` : ""}
+                    {entry.description || "(untitled)"} · {formatMoney(entry.defaultRate, draft.currency)}/
+                    {entry.unit}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            <button
+              className="button button-ghost"
+              onClick={() =>
+                patch({
+                  items: [
+                    ...draft.items,
+                    {
+                      id: `new-${Date.now()}`,
+                      position: draft.items.length,
+                      description: "",
+                      detail: "",
+                      quantity: 1,
+                      unit: "item",
+                      unitRate: 0,
+                    },
+                  ],
+                })
+              }
+            >
+              Add item
+            </button>
+          </div>
         </div>
 
         {draft.items.length === 0 ? (

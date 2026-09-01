@@ -1,0 +1,27 @@
+services:
+  dc-mcp:
+    image: python:3.12-slim
+    container_name: dc-mcp
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./server.py:/app/server.py:ro
+      # Control Center's data. Not :ro — SQLite in WAL mode needs to manage the
+      # -shm index file. The server sets PRAGMA query_only = 1 on every
+      # connection, so it cannot write regardless.
+      - /var/lib/control-center:/data
+    environment:
+      - CC_DATA_DIR=/data
+      - PYTHONUNBUFFERED=1
+    # No published ports. Hermes reaches it by container name on the shared
+    # network, so this is unreachable from the internet by construction.
+    networks:
+      - hermes
+    command: >
+      sh -c "pip install --no-cache-dir --quiet 'mcp>=1.2.0' &&
+             python /app/server.py"
+
+networks:
+  hermes:
+    external: true
+    name: hermes-agent-jyrk_default

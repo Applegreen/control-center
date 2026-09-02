@@ -26,7 +26,8 @@ export const STUDIO = {
   // the site's Organization schema. One address everywhere.
   address: ["The Media Mill", "7 Quince Street", "Mill Park", "Johannesburg, 2092"],
   email: "info@digitalcharacters.africa",
-  phone: "076 320 0950",
+  phone: "071 595 4780",
+  whatsapp: "076 320 0950",
   site: "digitalcharacters.africa",
   registration: "2014/164830/07",
   // Set DC_VAT_NUMBER in /etc/control-center.env. Left blank, the VAT line is
@@ -283,7 +284,7 @@ export async function renderProposalPdf(proposal: Proposal): Promise<Buffer> {
       doc.switchToPage(range.start + index);
       doc.fillColor(MUTED).font("Helvetica").fontSize(7.5).text(
         `${STUDIO.name} (Reg ${STUDIO.registration}${STUDIO.vat ? ` · VAT ${STUDIO.vat}` : ""}) · ` +
-          `${STUDIO.email} · ${STUDIO.phone} · ${STUDIO.site}`,
+          `${STUDIO.email} · ${STUDIO.phone} · WhatsApp ${STUDIO.whatsapp} · ${STUDIO.site}`,
         left,
         doc.page.height - 46,
         { width, align: "center" },
@@ -476,7 +477,7 @@ export async function renderProposalDocx(proposal: Proposal): Promise<Buffer> {
         new TextRun({
           text:
             `${STUDIO.name} (Reg ${STUDIO.registration}${STUDIO.vat ? ` · VAT ${STUDIO.vat}` : ""}) · ` +
-            `${STUDIO.email} · ${STUDIO.phone} · ${STUDIO.site}`,
+            `${STUDIO.email} · ${STUDIO.phone} · WhatsApp ${STUDIO.whatsapp} · ${STUDIO.site}`,
           color: "6B6960",
           size: 15,
         }),
@@ -581,6 +582,7 @@ export async function renderProposalPptx(proposal: Proposal): Promise<Buffer> {
     [
       STUDIO.email,
       STUDIO.phone,
+      `WhatsApp ${STUDIO.whatsapp}`,
       STUDIO.site,
       "",
       ...studioAddressLines(),

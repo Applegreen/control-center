@@ -2,8 +2,6 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { MailView } from "@/components/mail-view";
-import { AppsPanel } from "@/components/apps-panel";
 import {
   Activity,
   Archive,
@@ -94,7 +92,6 @@ type Tab =
   | "reminders"
   | "audience"
   | "newsletters"
-  | "mail"
   | "tasks"
   | "settings";
 type SettingsSection =
@@ -138,8 +135,8 @@ const emptySettings: PublicSettings = {
     provider: "none",
     model: "",
     localBaseUrls: DEFAULT_LOCAL_AI_URLS,
-    keySet: { openai: false, anthropic: false, gemini: false, xai: false, nvidia: false, lmstudio: false, ollama: false },
-    keySource: { openai: "none", anthropic: "none", gemini: "none", xai: "none", nvidia: "none", lmstudio: "none", ollama: "none" },
+    keySet: { openai: false, anthropic: false, gemini: false, xai: false, lmstudio: false, ollama: false },
+    keySource: { openai: "none", anthropic: "none", gemini: "none", xai: "none", lmstudio: "none", ollama: "none" },
   },
   dailyBrief: { sourceLabels: [], lookbackDays: 7, sections: { industry: 5, mentions: 5, newsletters: 5 } },
 };
@@ -151,7 +148,6 @@ const nav: { id: Tab; label: string; icon: typeof Activity }[] = [
   { id: "reminders", label: "Reminders", icon: Bookmark },
   { id: "audience", label: "Audience", icon: Users },
   { id: "newsletters", label: "Newsletters", icon: Newspaper },
-  { id: "mail", label: "Email", icon: Mail },
   { id: "tasks", label: "Tasks", icon: ListTodo },
 ];
 
@@ -690,7 +686,6 @@ function TodayView({
           </button>
         }
       />
-      <AppsPanel />
       <div className="brief-banner reveal delay-1">
         <div className="brief-mark">
           <Sparkles size={19} />
@@ -862,6 +857,63 @@ function TodayView({
   );
 }
 
+/**
+ * Tracks which stories are approved for digitalcharacters.africa and toggles
+ * them. Optimistic: the button flips immediately and rolls back if the write
+ * fails, because waiting on a round trip for a checkbox feels broken.
+ */
+function usePublishToSite() {
+  const [ids, setIds] = useState<string[]>([]);
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/site-news")
+      .then((response) => (response.ok ? response.json() : { ids: [] }))
+      .then((data) => {
+        if (!cancelled) setIds(Array.isArray(data.ids) ? data.ids : []);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const toggle = async (story: LiveStory) => {
+    const isPublished = ids.includes(story.id);
+    const previous = ids;
+    setPending(story.id);
+    setError(null);
+    setIds(isPublished ? ids.filter((id) => id !== story.id) : [...ids, story.id]);
+    try {
+      const response = await fetch("/api/site-news", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: story.id,
+          published: !isPublished,
+          title: story.title,
+          summary: story.aiSummary || story.summary,
+          url: story.url,
+          source: story.source,
+          publishedAt: story.publishedAt,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not update the site feed.");
+      if (Array.isArray(data.ids)) setIds(data.ids);
+    } catch (cause) {
+      setIds(previous);
+      setError(cause instanceof Error ? cause.message : "Could not update the site feed.");
+    } finally {
+      setPending(null);
+    }
+  };
+
+  return { ids, pending, error, toggle };
+}
+
 function IndustryView({
   saveStory,
   openSettings,
@@ -878,6 +930,7 @@ function IndustryView({
   const [view, setView] = useState<"active" | "history" | "archive">("active");
   const [sortOrder, setSortOrder] = useState<IndustrySortOrder>("important");
   const archive = useArchiveAction<LiveFeedResponse>("industry", mutate);
+  const publish = usePublishToSite();
   const sourceItems =
     view === "archive"
       ? data?.archivedItems || []
@@ -1025,6 +1078,7 @@ function IndustryView({
               ...(data.errors || []),
               ...(error ? [error] : []),
               ...(archive.error ? [archive.error] : []),
+              ...(publish.error ? [publish.error] : []),
             ]}
           />
           <div className="story-stack reveal delay-2">
@@ -1068,6 +1122,20 @@ function IndustryView({
                   <div className="story-footer">
                     <span />
                     <div>
+                      <button
+                        className={
+                          publish.ids.includes(item.id) ? "publish-on" : undefined
+                        }
+                        title={
+                          publish.ids.includes(item.id)
+                            ? "Published on digitalcharacters.africa - click to remove"
+                            : "Publish to digitalcharacters.africa"
+                        }
+                        disabled={publish.pending === item.id}
+                        onClick={() => void publish.toggle(item)}
+                      >
+                        <Globe2 size={16} />
+                      </button>
                       {view === "active" && (
                         <button
                           title="Save to reminders"
@@ -3648,9 +3716,11 @@ export function ControlCenter() {
           role="button"
           tabIndex={0}
         >
-          <span className="brand-mark" />
+          <span className="brand-mark">
+            <Activity size={18} />
+          </span>
           <span>
-            <b>Digital Characters</b>
+            <b>{settings.general.workspaceName.toUpperCase()}</b>
             <small>CONTROL CENTER</small>
           </span>
         </div>
@@ -3767,7 +3837,6 @@ export function ControlCenter() {
             openAiSettings={() => openSettings("ai")}
           />
         )}{" "}
-        {activeTab === "mail" && <MailView />}{" "}
         {activeTab === "tasks" && (
           <TasksView tasks={tasks} setTasks={setTasks} />
         )}{" "}

@@ -83,9 +83,7 @@ export async function fetchAiModels(
     return normalizeAiModels(provider, data);
   }
 
-  const endpoint = provider === "nvidia"
-    ? "https://integrate.api.nvidia.com/v1/models"
-    : provider === "openai"
+  const endpoint = provider === "openai"
     ? "https://api.openai.com/v1/models"
     : provider === "anthropic"
       ? "https://api.anthropic.com/v1/models?limit=1000"

@@ -33,15 +33,6 @@ export async function gmailJson<T>(path: string, accessToken: string): Promise<T
     cache: "no-store",
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!response.ok) {
-    let detail = "";
-    try {
-      const body = await response.text();
-      const parsed = JSON.parse(body) as { error?: { status?: string; message?: string } };
-      detail = [parsed.error?.status, parsed.error?.message].filter(Boolean).join(": ")
-        || body.slice(0, 300);
-    } catch { /* non-JSON body */ }
-    throw new Error(`Gmail API returned ${response.status}.${detail ? ` ${detail}` : ""}`);
-  }
+  if (!response.ok) throw new Error(`Gmail API returned ${response.status}.`);
   return response.json() as Promise<T>;
 }

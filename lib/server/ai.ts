@@ -61,7 +61,7 @@ async function providerFetch(
   url: string,
   init: RequestInit,
 ) {
-  return aiProviderJson(provider, url, init, { timeoutMs: isLocalAiProvider(provider) ? 600_000 : 45_000 });
+  return aiProviderJson(provider, url, init, { timeoutMs: isLocalAiProvider(provider) ? 120_000 : 45_000 });
 }
 
 function openAiText(payload: Record<string, unknown>) {
@@ -225,33 +225,6 @@ function chatCompletionText(payload: Record<string, unknown>) {
   return typeof first?.message?.content === "string" ? first.message.content : "";
 }
 
-async function runNvidia(key: string, model: string, options: AiRunOptions) {
-  if (options.webSearch) throw new Error("NVIDIA NIM does not provide built-in web research. The built-in public-source collectors continue to run.");
-  const body = JSON.stringify({
-    model,
-    messages: [{ role: "user", content: options.prompt }],
-    max_tokens: boundedTokens(options.maxOutputTokens),
-    temperature: 0.2,
-    stream: false,
-  });
-  // NIM rate-limits bursts. Back off and retry rather than dropping the item.
-  const MAX_ATTEMPTS = 5;
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return chatCompletionText(await providerFetch("nvidia", "https://integrate.api.nvidia.com/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body,
-      }));
-    } catch (error) {
-      const status = (error as { status?: number }).status;
-      if (status !== 429 || attempt >= MAX_ATTEMPTS - 1) throw error;
-      const waitMs = 2_000 * 2 ** attempt + Math.floor(Math.random() * 750);
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-    }
-  }
-}
-
 async function runXai(key: string, model: string, options: AiRunOptions) {
   const payload = await providerFetch("xai", "https://api.x.ai/v1/responses", {
     method: "POST",
@@ -281,7 +254,7 @@ async function runLocalAi(settings: StoredSettings, provider: "lmstudio" | "olla
       ...(provider === "lmstudio"
         ? { max_tokens: outputTokens }
         // Omit keep_alive: retain Ollama's user-configured server/runner lifetime.
-        : { options: { num_predict: outputTokens, num_ctx: contextLength }, truncate: false, shift: false, think: false }),
+        : { options: { num_predict: outputTokens, num_ctx: contextLength }, truncate: false, shift: false }),
     }),
   });
   const choices = Array.isArray(payload.choices) ? payload.choices : [];
@@ -319,9 +292,7 @@ export async function runConfiguredAi(
         ? await runGemini(key, model, options)
         : provider === "xai"
           ? await runXai(key, model, options)
-          : provider === "nvidia"
-            ? await runNvidia(key, model, options)
-            : await runLocalAi(settings, provider, key, model, options, selectedModel.contextLength);
+          : await runLocalAi(settings, provider, key, model, options, selectedModel.contextLength);
   if (!text.trim()) throw new Error(`${provider} returned no usable text.`);
   return { provider, model, text };
 }

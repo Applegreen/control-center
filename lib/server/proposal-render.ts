@@ -22,7 +22,9 @@ import { readFileSync } from "node:fs";
 export const STUDIO = {
   name: "Digital Characters",
   tagline: "Animation · Visual effects · Post production",
-  address: ["19 Arlanada Crescent", "Highveld x12", "Centurion", "0157"],
+  // Kept in step with the address published on digitalcharacters.africa and in
+  // the site's Organization schema. One address everywhere.
+  address: ["The Media Mill", "7 Quince Street", "Mill Park", "Johannesburg, 2092"],
   email: "info@digitalcharacters.africa",
   phone: "076 320 0950",
   site: "digitalcharacters.africa",

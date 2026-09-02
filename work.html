@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Digital Characters</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<meta name="description" content="Original animated IP, VFX and AI-film from Digital Characters — a Johannesburg studio crafting Netflix-grade African stories." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": [
+        "Organization",
+        "ProductionCompany"
+      ],
+      "@id": "https://www.digitalcharacters.africa/#org",
+      "name": "Digital Characters",
+      "legalName": "Digital Characters (Pty) Ltd",
+      "alternateName": "Digital Characters Animation Studio",
+      "url": "https://www.digitalcharacters.africa/",
+      "logo": "https://www.digitalcharacters.africa/assets/logo.png",
+      "image": "https://www.digitalcharacters.africa/assets/logo.png",
+      "foundingDate": "2014",
+      "founder": {
+        "@id": "https://www.digitalcharacters.africa/#founder"
+      },
+      "description": "Digital Characters is a South African animation, visual effects and film studio based in Johannesburg. Founded in 2014, it is one of the few black-owned animation studios in South Africa, producing original animated series and films for African and international broadcasters and streaming platforms.",
+      "numberOfEmployees": {
+        "@type": "QuantitativeValue",
+        "value": 10
+      },
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "The Media Mill, 7 Quince Street, Mill Park",
+        "addressLocality": "Johannesburg",
+        "addressRegion": "Gauteng",
+        "postalCode": "2092",
+        "addressCountry": "ZA"
+      },
+      "email": "info@digitalcharacters.africa",
+      "telephone": "+27-71-595-4780",
+      "contactPoint": [
+        {
+          "@type": "ContactPoint",
+          "telephone": "+27-71-595-4780",
+          "email": "info@digitalcharacters.africa",
+          "contactType": "business enquiries",
+          "areaServed": "Worldwide",
+          "availableLanguage": [
+            "English"
+          ]
+        },
+        {
+          "@type": "ContactPoint",
+          "telephone": "+27-76-320-0950",
+          "contactType": "customer support",
+          "contactOption": "WhatsApp",
+          "areaServed": "Worldwide",
+          "availableLanguage": [
+            "English"
+          ]
+        }
+      ],
+      "identifier": [
+        {
+          "@type": "PropertyValue",
+          "name": "Company registration",
+          "value": "2014/164830/07"
+        }
+      ],
+      "knowsAbout": [
+        "2D animation",
+        "3D animation",
+        "Visual effects",
+        "Animated television series",
+        "Animated feature film",
+        "Post production",
+        "Audio production and final mixing",
+        "African animation",
+        "South African animation industry",
+        "Character design",
+        "Co-production"
+      ],
+      "award": [
+        "NFVF Animation Slate, awarded by the National Film and Video Foundation in conjunction with the Department of Trade and Industry, the Industrial Development Corporation and the Gauteng Film Commission"
+      ],
+      "sameAs": [
+        "https://www.youtube.com/@digitalcharacters3300",
+        "https://www.tiktok.com/@digitalcharacters",
+        "https://www.facebook.com/digitalcharacters",
+        "https://x.com/DigiCharacters"
+      ]
+    },
+    {
+      "@type": "Person",
+      "@id": "https://www.digitalcharacters.africa/#founder",
+      "name": "Shimane M Applegreen",
+      "alternateName": "Shimane Applegreen",
+      "jobTitle": "Founder and Chief Executive Officer",
+      "worksFor": {
+        "@id": "https://www.digitalcharacters.africa/#org"
+      },
+      "knowsAbout": [
+        "Animation production",
+        "Visual effects",
+        "Directing",
+        "Executive producing"
+      ]
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://www.digitalcharacters.africa/#website",
+      "url": "https://www.digitalcharacters.africa/",
+      "name": "Digital Characters",
+      "publisher": {
+        "@id": "https://www.digitalcharacters.africa/#org"
+      },
+      "inLanguage": "en"
+    }
+  ]
+}
+</script>
+<style>
+:root{
+  --bg:#0a0a0c; --bg2:#111114; --ink:#f3f1ec; --muted:#8a8880; --line:rgba(255,255,255,.12);
+  --accent:#ff6a1a;
+  --maxw:1400px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:100px}
+body{font-family:'Space Grotesk',system-ui,sans-serif;background:var(--bg);color:var(--ink);overflow-x:hidden;-webkit-font-smoothing:antialiased;cursor:none}
+@media(pointer:coarse){body{cursor:auto}}
+a{color:inherit;text-decoration:none}
+img{display:block;max-width:100%}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 clamp(20px,5vw,64px)}
+h1,h2,h3{font-weight:500;letter-spacing:-.03em;line-height:.98}
+::selection{background:var(--accent);color:#000}
+
+/* Preloader */
+#pre{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center;transition:opacity .8s ease, visibility .8s}
+#pre.done{opacity:0;visibility:hidden}
+#pre .pl{font-size:clamp(1.4rem,4vw,2.4rem);font-weight:500;letter-spacing:-.02em;overflow:hidden}
+#pre .pl span{display:inline-block;transform:translateY(110%);animation:rise .9s cubic-bezier(.2,.8,.2,1) forwards}
+@keyframes rise{to{transform:translateY(0)}}
+
+/* Cursor */
+.cursor{position:fixed;top:0;left:0;width:12px;height:12px;border-radius:50%;background:var(--ink);z-index:9000;pointer-events:none;transform:translate(-50%,-50%);transition:width .3s, height .3s, background .3s;mix-blend-mode:difference;display:flex;align-items:center;justify-content:center}
+.cursor .lbl{font-size:.7rem;color:#000;opacity:0;transform:scale(.5);transition:opacity .25s, transform .25s;letter-spacing:.02em;white-space:nowrap;font-weight:600}
+.cursor.big{width:92px;height:92px;background:var(--accent);mix-blend-mode:normal}
+.cursor.big .lbl{opacity:1;transform:scale(1)}
+@media(pointer:coarse){.cursor{display:none}}
+
+/* Nav */
+header.nav{position:fixed;top:0;left:0;right:0;z-index:100;mix-blend-mode:difference}
+.nav-inner{display:flex;align-items:center;justify-content:space-between;padding:26px clamp(20px,5vw,64px)}
+.brand{display:flex;align-items:center;gap:11px;font-weight:600;font-size:1.05rem;letter-spacing:-.01em}
+.brand img{height:30px;width:auto}
+.nav-menu{display:flex;gap:34px;font-size:.95rem}
+.nav-menu a{position:relative;opacity:.85;transition:opacity .2s}
+.nav-menu a:hover{opacity:1}
+.nav-menu a::after{content:"";position:absolute;left:0;bottom:-5px;height:1px;width:0;background:currentColor;transition:width .3s}
+.nav-menu a:hover::after{width:100%}
+.nav-cta{font-size:.95rem;border:1px solid currentColor;padding:9px 20px;border-radius:100px;transition:background .25s,color .25s}
+.burger{display:none;font-size:1.5rem;background:none;border:0;color:inherit;cursor:pointer}
+
+/* Hero */
+.hero{padding:clamp(150px,22vh,260px) 0 clamp(60px,9vw,120px)}
+.hero .tag{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:.85rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:34px}
+.hero .tag::before{content:"";width:34px;height:1px;background:var(--muted)}
+.hero h1{font-size:clamp(2.6rem,8.4vw,7.6rem);font-weight:500;max-width:16ch}
+.hero h1 em{font-style:normal;color:var(--accent)}
+.hero .sub{margin-top:34px;max-width:640px;color:var(--muted);font-size:clamp(1.05rem,1.7vw,1.4rem);line-height:1.5}
+.hero .sub b{color:var(--ink);font-weight:500}
+
+/* Marquee */
+.strip{border-top:1px solid var(--line);border-bottom:1px solid var(--line);overflow:hidden;white-space:nowrap;padding:20px 0;margin-top:18px}
+.strip div{display:inline-block;animation:scrollx 30s linear infinite;font-size:1.05rem;color:var(--muted);letter-spacing:.02em}
+.strip span{margin:0 24px}
+.strip b{color:var(--ink);font-weight:500}
+@keyframes scrollx{to{transform:translateX(-50%)}}
+
+/* Section head */
+.shead{display:flex;align-items:flex-end;justify-content:space-between;gap:30px;margin:0 0 12px;flex-wrap:wrap}
+.shead h2{font-size:clamp(2rem,5vw,3.6rem);font-weight:500}
+.shead .idx{color:var(--muted);font-size:.9rem;letter-spacing:.1em}
+.shead p{color:var(--muted);max-width:420px;font-size:1rem;line-height:1.55}
+
+/* Work feed */
+.feed{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(20px,2.4vw,38px);margin-top:60px}
+.tile{cursor:none;display:block}
+.tile:nth-child(even){margin-top:0}
+@media(min-width:1101px){.feed{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:1100px) and (min-width:641px){.feed{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:640px){.feed{grid-template-columns:1fr;gap:40px}}
+.tile .label{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:.78rem;letter-spacing:.14em;text-transform:uppercase;margin-bottom:16px}
+.tile .label .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.tile .media{position:relative;overflow:hidden;border-radius:6px;aspect-ratio:4/5;background:#17151b}
+.tile .media img{width:100%;height:100%;object-fit:cover;transition:transform 1s cubic-bezier(.2,.8,.2,1), filter .6s;filter:saturate(1.02)}
+.tile:hover .media img{transform:scale(1.06)}
+.tile .media .vid{position:absolute;inset:0;opacity:0;transition:opacity .5s;pointer-events:none}
+.tile .media .vid iframe{position:absolute;top:50%;left:50%;width:177.78vh;height:100%;min-width:100%;min-height:56.25vw;transform:translate(-50%,-50%);border:0}
+.tile.playing .media .vid{opacity:1}
+.tile .media .arrow{position:absolute;top:18px;right:18px;width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,.14);backdrop-filter:blur(8px);display:grid;place-items:center;font-size:1.1rem;transform:translateY(-6px) scale(.85);opacity:0;transition:.4s}
+.tile:hover .media .arrow{opacity:1;transform:none}
+.tile .info{display:flex;align-items:baseline;justify-content:space-between;gap:20px;margin-top:22px;flex-wrap:wrap}
+.tile .info{margin-top:16px}
+.tile .info h3{font-size:clamp(1.05rem,1.5vw,1.35rem);font-weight:500}
+.tile .cats{color:var(--muted);font-size:.82rem;text-align:right}
+
+/* Capabilities */
+.caps{margin-top:70px;border-top:1px solid var(--line)}
+.cap{display:grid;grid-template-columns:60px 1fr auto;gap:30px;align-items:center;padding:36px 0;border-bottom:1px solid var(--line);transition:padding-left .4s, color .4s}
+.cap:hover{padding-left:20px}
+.cap .n{color:var(--muted);font-size:.9rem}
+.cap h3{font-size:clamp(1.6rem,3.6vw,2.8rem);font-weight:500}
+.cap:hover h3{color:var(--accent)}
+.cap p{color:var(--muted);max-width:360px;font-size:.98rem;line-height:1.5;justify-self:end;text-align:right}
+
+/* Studio */
+.studio{margin-top:40px;display:grid;grid-template-columns:1.3fr .7fr;gap:60px;align-items:start}
+.studio .big{font-size:clamp(1.5rem,3vw,2.3rem);font-weight:500;line-height:1.25;letter-spacing:-.02em}
+.studio .big em{font-style:normal;color:var(--accent)}
+.studio .side p{color:var(--muted);line-height:1.7;margin-bottom:20px}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-top:70px;border-top:1px solid var(--line);padding-top:44px}
+.metric .num{font-size:clamp(2.4rem,5vw,3.6rem);font-weight:500;letter-spacing:-.03em}
+.metric .lbl{color:var(--muted);font-size:.85rem;margin-top:6px}
+
+/* News */
+.posts{margin-top:60px;border-top:1px solid var(--line)}
+.prow{display:grid;grid-template-columns:70px 1fr auto;gap:30px;align-items:center;padding:30px 0;border-bottom:1px solid var(--line);cursor:none;transition:padding-left .4s}
+.prow:hover{padding-left:18px}
+.prow .cat{color:var(--accent);font-size:.78rem;text-transform:uppercase;letter-spacing:.1em}
+.prow h3{font-size:clamp(1.2rem,2.4vw,1.9rem);font-weight:500;max-width:22ch}
+.prow .rd{color:var(--muted);font-size:.9rem;white-space:nowrap}
+
+/* Connect / footer */
+.connect{margin-top:clamp(40px,6vw,80px);padding:clamp(44px,6vw,80px) 0 50px;border-top:1px solid var(--line)}
+.connect h2{font-size:clamp(2.4rem,9vw,8rem);font-weight:500;line-height:.95;letter-spacing:-.03em}
+.connect h2 a{color:var(--accent)}
+.foot-cols{display:flex;justify-content:space-between;gap:40px;flex-wrap:wrap;margin-top:80px}
+.foot-cols h4{color:var(--muted);font-size:.82rem;text-transform:uppercase;letter-spacing:.1em;margin-bottom:16px;font-weight:500}
+.foot-cols a{display:block;padding:5px 0;opacity:.85;transition:opacity .2s,color .2s}
+.foot-cols a:hover{opacity:1;color:var(--accent)}
+.coffee{max-width:280px;color:var(--muted);line-height:1.6;font-size:.95rem}
+.botbar{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:70px;padding-top:24px;border-top:1px solid var(--line);color:var(--muted);font-size:.84rem}
+
+/* Sections — all black */
+.hero{background:#0a0a0c;position:relative;overflow:hidden}
+#work,#capabilities,#studio,#clients,#news,#connect{background:#0a0a0c}
+#work,#capabilities,#studio,#news{padding:clamp(48px,7vw,84px) 0 clamp(36px,5vw,60px)}
+#clients{padding:clamp(40px,6vw,68px) 0}
+#work .shead .idx,#capabilities .shead .idx,#studio .shead .idx,#clients .shead .idx,#news .shead .idx{color:var(--accent);opacity:.8}
+
+/* Hero background looping video */
+.hero-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;opacity:.72}
+.hero-veil{position:absolute;inset:0;z-index:1;background:linear-gradient(180deg,rgba(10,10,12,.92) 0%,rgba(10,10,12,.25) 20%,rgba(10,10,12,.2) 68%,rgba(10,10,12,.95) 100%)}
+.hero .wrap,.hero .strip{position:relative;z-index:2}
+.hero{min-height:56vh;display:flex;align-items:flex-end}
+
+/* Lead text relocated above Selected Work */
+#work .lead-tag{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:.85rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:24px}
+#work .lead-tag::before{content:"";width:34px;height:1px;background:var(--muted)}
+#work .lead-h1{font-size:clamp(2rem,5.6vw,4.4rem);font-weight:500;max-width:20ch;margin-bottom:28px}
+#work .lead-h1 em{font-style:normal;color:var(--accent)}
+#work .lead-cta{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--accent);color:var(--accent);font-weight:500;padding:12px 26px;border-radius:100px;font-size:.95rem;margin-bottom:clamp(40px,6vw,64px);transition:background .25s,color .25s}
+#work .lead-cta:hover{background:var(--accent);color:#0a0a0c}
+
+/* CTA band */
+.cta-band{background:#0a0a0c;padding:clamp(56px,8vw,100px) 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);text-align:center}
+.cta-band h2{font-size:clamp(1.8rem,4.5vw,3.2rem);font-weight:500;max-width:20ch;margin:0 auto 18px}
+.cta-band p{color:var(--muted);max-width:520px;margin:0 auto 34px;font-size:1.05rem;line-height:1.6}
+.cta-btn{display:inline-flex;align-items:center;gap:8px;background:var(--accent);color:#0a0a0c;font-weight:600;padding:14px 30px;border-radius:100px;font-size:1rem;transition:transform .25s,box-shadow .25s}
+.cta-btn:hover{transform:translateY(-2px);box-shadow:0 14px 30px rgba(255,106,26,.35)}
+
+/* Clients / logo strip */
+.clients-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:18px;margin-top:56px}
+.logo-tile{background:#f5f3ee;border-radius:10px;aspect-ratio:3/2;display:grid;place-items:center;padding:24px;transition:transform .4s, box-shadow .4s}
+.logo-tile:hover{transform:translateY(-6px);box-shadow:0 22px 46px rgba(0,0,0,.45)}
+.logo-tile img{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain}
+.logo-tile.dark{background:#141418}
+#work{padding-top:clamp(30px,4vw,52px)}
+
+/* Modal */
+.modal{position:fixed;inset:0;z-index:500;display:none;align-items:center;justify-content:center;padding:24px;background:rgba(4,4,6,.9);backdrop-filter:blur(8px);cursor:auto}
+.modal.open{display:flex}
+.mbox{width:min(960px,100%);position:relative}
+.mvid{aspect-ratio:16/9;width:100%}
+.mvid iframe{width:100%;height:100%;border:0;border-radius:8px;display:block}
+.marticle{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:clamp(28px,4vw,52px);max-height:86vh;overflow:auto}
+.marticle .cat{color:var(--accent);font-size:.78rem;text-transform:uppercase;letter-spacing:.1em}
+.marticle h2{font-size:clamp(1.6rem,3.4vw,2.4rem);font-weight:500;margin:12px 0 22px;line-height:1.08}
+.marticle p{color:#cfccc4;line-height:1.8;margin-bottom:16px}
+.mclose{position:absolute;top:-16px;right:-16px;width:46px;height:46px;border-radius:50%;background:var(--accent);border:0;color:#000;font-size:1.2rem;cursor:pointer;z-index:5}
+
+.reveal{opacity:0;transform:translateY(40px);transition:opacity 1s cubic-bezier(.2,.8,.2,1), transform 1s cubic-bezier(.2,.8,.2,1)}
+.reveal.in{opacity:1;transform:none}
+
+@media(max-width:900px){
+  .nav-menu,.nav-cta{display:none}
+  .tile:nth-child(even){margin-top:0}
+  .studio{grid-template-columns:1fr;gap:34px}
+  .metrics{grid-template-columns:1fr 1fr}
+  .cap{grid-template-columns:1fr;gap:8px}
+  .cap p{justify-self:start;text-align:left}
+  .prow{grid-template-columns:1fr;gap:8px}
+  .prow .rd{display:none}
+}
+
+#videos{background:#0a0a0c;padding:clamp(48px,7vw,84px) 0 clamp(36px,5vw,60px)}
+#videos .shead .idx{color:var(--accent);opacity:.8}
+.vgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:clamp(14px,1.6vw,22px);margin-top:44px}
+@media(max-width:1100px){.vgrid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:760px){.vgrid{grid-template-columns:repeat(2,1fr)}}
+.vcard{cursor:pointer;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#141417;transition:transform .3s,border-color .3s}
+.vcard:hover{transform:translateY(-4px);border-color:var(--accent)}
+.vthumb{position:relative;aspect-ratio:16/9;overflow:hidden;background:#000}
+.vthumb img{width:100%;height:100%;object-fit:cover;transition:transform .5s}
+.vcard:hover .vthumb img{transform:scale(1.06)}
+.vthumb::after{content:"▶";position:absolute;inset:0;display:grid;place-items:center;font-size:1.8rem;color:#fff;background:rgba(0,0,0,.25);opacity:0;transition:opacity .3s}
+.vcard:hover .vthumb::after{opacity:1}
+.vtitle{padding:12px 14px;font-size:.92rem;line-height:1.35;color:var(--ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.vloading{color:var(--muted);grid-column:1/-1;padding:20px 0}
+.vmore{display:inline-flex;color:var(--accent);border:1px solid var(--accent);border-radius:100px;padding:10px 22px;font-weight:500;transition:background .25s,color .25s}
+.vmore:hover{background:var(--accent);color:#0a0a0c}
+footer a,.botbar a{color:inherit;text-decoration:underline;text-underline-offset:3px;text-decoration-color:rgba(255,255,255,.35)}footer a:hover,.botbar a:hover{color:#fff;text-decoration-color:currentColor}
+</style>
+</head>
+<body>
+
+<div id="pre"><div class="pl" id="plText"></div></div>
+<div class="cursor" id="cursor"><span class="lbl" id="cursorLbl">Watch</span></div>
+
+<header class="nav">
+  <div class="nav-inner">
+    <a href="#top" class="brand"><img src="assets/logo.png" alt="">Digital Characters</a>
+    <nav class="nav-menu">
+      <a href="#work">Work</a>
+      <a href="#capabilities">Capabilities</a>
+      <a href="#studio">Studio</a>
+      <a href="#news">News</a>
+      <a href="#connect">Connect</a>
+    </nav>
+    <button class="burger" onclick="document.querySelector('.nav-menu').scrollIntoView()">≡</button>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- HERO -->
+<section class="hero">
+  <video class="hero-bg" autoplay muted loop playsinline><source src="assets/intro.mp4" type="video/mp4"></video>
+  <div class="hero-veil"></div>
+</section>
+
+<!-- WORK -->
+<section id="work">
+  <div class="wrap">
+    <div class="lead-tag reveal">Johannesburg · Animation &amp; VFX Studio</div>
+    <h1 class="lead-h1 reveal">We craft <em>African stories</em> that move the world</h1>
+    <a class="lead-cta reveal" href="#connect">Let's build your series →</a>
+    <div class="shead">
+      <div><div class="idx reveal">01 — Selected Work</div><h2 class="reveal">Original IP</h2></div>
+      <p class="reveal">Seven worlds in development across kids, comedy, action and adventure. Hover to preview — tap to watch the trailer.</p>
+    </div>
+    <div class="feed" id="feed"></div>
+  </div>
+</section>
+
+<!-- CAPABILITIES -->
+<section id="capabilities">
+  <div class="wrap">
+    <div class="shead">
+      <div><div class="idx reveal">02 — What We Do</div><h2 class="reveal">Capabilities</h2></div>
+      <p class="reveal">Broadcast quality at a fraction of traditional time and cost — from concept to final delivery.</p>
+    </div>
+    <div class="caps">
+      <div class="cap reveal"><div class="n">01</div><h3>Animation</h3><p>Broadcast-quality 2D/3D series and trailers via hybrid AI-assisted pipelines — Netflix-grade content in 8–12 months at ~40% of traditional cost.</p></div>
+      <div class="cap reveal"><div class="n">02</div><h3>Visual effects</h3><p>Compositing, CGI integration and AI-assisted rotoscoping for film, commercials and music videos — fast, without losing creative control.</p></div>
+      <div class="cap reveal"><div class="n">03</div><h3>Film &amp; Commercials</h3><p>End-to-end production support for creators and studios, from pre-visualisation to final delivery, with AI tools woven in at every stage.</p></div>
+      <div class="cap reveal"><div class="n">04</div><h3>AI Pipeline Training &amp; Development</h3><p>We help studios and production companies integrate AI tools into their existing pipeline — training teams, auditing workflows, and building custom tooling to boost productivity and efficiency without sacrificing creative control.</p></div>
+    </div>
+  </div>
+</section>
+
+
+<!-- VIDEOS / CHANNEL -->
+<section id="videos">
+  <div class="wrap">
+    <div class="shead">
+      <div><div class="idx reveal">▶ — Watch</div><h2 class="reveal">Straight from our channel</h2></div>
+      <p class="reveal">The latest trailers, breakdowns and shorts — updated automatically from our YouTube channel.</p>
+    </div>
+    <div class="vgrid" id="vgrid"><div class="vloading">Loading videos…</div></div>
+    <div style="margin-top:28px"><a class="vmore reveal" href="https://www.youtube.com/@digitalcharacters3300" target="_blank" rel="noopener">Visit our YouTube channel →</a></div>
+  </div>
+</section>
+
+<!-- STUDIO -->
+<section id="studio">
+  <div class="wrap">
+    <div class="shead">
+      <div><div class="idx reveal">03 — Who We Are</div><h2 class="reveal">Studio</h2></div>
+    </div>
+    <div class="studio">
+      <div class="big reveal">A Johannesburg animation, VFX and AI-film studio founded in 2014, building the next generation of African content for global streaming platforms. <em>We don't replace animators — we amplify them.</em></div>
+      <div class="side reveal">
+        <p>Our pipeline integrates Runway, Pika, Stable Diffusion and custom scripting into traditional Nuke and After Effects workflows — so the same creative team delivers two to three times the output at 40–50% lower cost, with every frame directed and signed off by people.</p>
+        <p>A registered SACFI member and NFVF production-funding recipient.</p>
+      </div>
+    </div>
+    <div class="metrics">
+      <div class="metric reveal"><div class="num">7+</div><div class="lbl">Original IPs</div></div>
+      <div class="metric reveal"><div class="num">40%</div><div class="lbl">Cost saving</div></div>
+      <div class="metric reveal"><div class="num">8–12</div><div class="lbl">Months / series</div></div>
+      <div class="metric reveal"><div class="num">2014</div><div class="lbl">Founded</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- CLIENTS -->
+<section id="clients">
+  <div class="wrap">
+    <div class="shead">
+      <div><div class="idx reveal">04 — Trusted By</div><h2 class="reveal">Companies we've worked with</h2></div>
+      <p class="reveal">Brands, broadcasters and public institutions we've partnered with across South Africa.</p>
+    </div>
+    <div class="clients-grid">
+      <div class="logo-tile reveal dark"><img src="assets/logos/wom.png" alt="Word of Mouth Pictures"></div>
+      <div class="logo-tile reveal"><img src="assets/logos/nfvf.jpg" alt="National Film and Video Foundation"></div>
+      <div class="logo-tile reveal"><img src="assets/logos/tshimologong.png" alt="Tshimologong Precinct, Wits University"></div>
+      <div class="logo-tile reveal"><img src="assets/logos/nwgb-download.jpg" alt="North West Gambling Board"></div>
+      <div class="logo-tile reveal"><img src="assets/logos/mtv-base.png" alt="MTV Base"></div>
+      <div class="logo-tile reveal"><img src="assets/logos/khuli-chana.png" alt="Khuli Chana"></div>
+      <div class="logo-tile reveal"><img src="assets/logos/family-tree.jpg" alt="Family Tree Records"></div>
+      <div class="logo-tile reveal"><img src="assets/logos/mmabana-crest.png" alt="Mmabana ACSF"></div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA BAND -->
+<section id="cta-band" class="cta-band">
+  <div class="wrap">
+    <h2 class="reveal">Have a story that deserves the screen?</h2>
+    <p class="reveal">From concept to broadcast-ready, we'll help you bring it to life — faster, and at a fraction of the cost.</p>
+    <a class="cta-btn reveal" href="#connect">Start a conversation →</a>
+  </div>
+</section>
+
+<!-- NEWS -->
+<section id="news">
+  <div class="wrap">
+    <div class="shead">
+      <div><div class="idx reveal">05 — From the Studio</div><h2 class="reveal">News</h2></div>
+      <p class="reveal">South African and international AI developments, seen through a studio's lens.</p>
+    </div>
+    <div class="posts" id="posts"></div>
+  </div>
+</section>
+
+<!-- CONNECT -->
+<section id="connect" class="connect">
+  <div class="wrap">
+    <div class="idx reveal" style="color:var(--muted);letter-spacing:.1em;margin-bottom:24px">06 — Connect</div>
+    <h2 class="reveal">Let's build your<br>animated series. <a href="mailto:info@digitalcharacters.africa">Say hello →</a></h2>
+    <div class="foot-cols">
+      <div>
+        <h4>Menu</h4>
+        <a href="#work">Work</a><a href="#capabilities">Capabilities</a><a href="#studio">Studio</a><a href="#news">News</a>
+      </div>
+      <div>
+        <h4>Social</h4>
+        <a href="https://www.youtube.com/@digitalcharacters3300" target="_blank" rel="noopener">YouTube</a>
+        <a href="https://www.tiktok.com/@digitalcharacters" target="_blank" rel="noopener">TikTok</a>
+        <a href="https://www.facebook.com/digitalcharacters" target="_blank" rel="noopener">Facebook</a>
+        <a href="https://x.com/DigiCharacters" target="_blank" rel="noopener">X</a>
+      </div>
+      <div>
+        <h4>Contact</h4>
+        <a href="mailto:info@digitalcharacters.africa">info@digitalcharacters.africa</a>
+        <a href="tel:+27715954780"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:7px" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>+27 71 595 4780</a>
+        <a href="https://wa.me/27763200950" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" style="vertical-align:-2px;margin-right:7px" aria-hidden="true"><path d="M17.47 14.38c-.3-.15-1.75-.86-2.02-.96-.27-.1-.47-.15-.67.15-.2.29-.77.95-.94 1.15-.17.2-.35.22-.64.07-.3-.15-1.25-.46-2.38-1.47-.88-.78-1.47-1.75-1.65-2.04-.17-.3-.02-.46.13-.6.13-.13.3-.35.44-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.6-.92-2.2-.24-.58-.49-.5-.67-.51l-.57-.01c-.2 0-.52.07-.79.37-.27.3-1.04 1.01-1.04 2.47s1.07 2.87 1.22 3.07c.15.2 2.1 3.2 5.08 4.49.71.3 1.26.49 1.69.63.71.22 1.36.19 1.87.12.57-.09 1.75-.72 2-1.41.25-.7.25-1.29.17-1.41-.07-.13-.27-.2-.57-.35z"/><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.46 1.32 4.96L2 22l5.25-1.38a9.86 9.86 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2zm0 18.13h-.01a8.2 8.2 0 0 1-4.18-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.19 8.19 0 0 1-1.26-4.36c0-4.54 3.7-8.23 8.24-8.23 2.2 0 4.27.86 5.82 2.42a8.18 8.18 0 0 1 2.41 5.82c0 4.54-3.69 8.21-8.23 8.21z"/></svg>+27 76 320 0950</a>
+      </div>
+      <div>
+        <h4>Let's grab a coffee</h4>
+        <p class="coffee">We're based in Johannesburg, South Africa, building stories for the world ☕</p>
+      </div>
+    </div>
+    <div class="botbar">
+      <span>© 2014–2026 Digital Characters (PTY) Ltd.</span>
+      <span><a href="privacy.html">Privacy</a> · SACFI Member · NFVF Production Funding Recipient</span>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<div class="modal" id="modal"><div class="mbox" id="mbox"><button class="mclose" id="mclose" aria-label="Close">✕</button><div id="mcontent"></div></div></div>
+
+<script>
+const shows=[
+ {slug:"bahbahloons", img:"assets/poster-bahbahloons.jpg", title:"Bahh Bah Loons", cats:"Kids Animation · Series", yt:"is2s5a2ng2g"},
+ {slug:"firstcitizen", img:"assets/poster-firstcitizen.png", title:"First Citizen", cats:"Political Satire · Series", yt:"RIZvB8Vm2NU"},
+ {slug:"lacookarucha", img:"assets/poster-lacookarucha.jpg", title:"La Cookarucha", cats:"Kids Animation · Comedy", yt:"qC_9VRe8Kf8"},
+ {slug:"mzansi", img:"assets/poster-mzansi.jpg", title:"Mzansi", cats:"Animated Action · Series", yt:"YGHIv3w2CWo"},
+ {slug:"dimo", img:"assets/poster-dimo.png", title:"Dimo & Tselane", cats:"Kids Adventure · Development", yt:""},
+ {slug:"vuka", img:"assets/poster-vuka.jpg", title:"Vuka Thuthuka", cats:"Family Adventure · Development", yt:""},
+ {slug:"crocodile", img:"assets/poster-crocodile.jpg", title:"The Way of the Crocodile", cats:"Historical Action · Feature", yt:""}
+];
+const feed=document.getElementById('feed');
+shows.forEach(s=>{
+  const a=document.createElement('a');
+  a.className='tile reveal';a.href='show-'+s.slug+'.html';a.dataset.cursor='View';
+  a.innerHTML='<div class="label"><span class="dot"></span>Original IP</div>'+
+    '<div class="media"><img src="'+s.img+'" alt="'+s.title+'"><div class="vid"></div><div class="arrow">↗</div></div>'+
+    '<div class="info"><h3>'+s.title+'</h3><div class="cats">'+s.cats+'</div></div>';
+  const media=a.querySelector('.media');
+  if(s.yt){
+    a.addEventListener('mouseenter',()=>{
+      media.querySelector('.vid').innerHTML='<iframe src="https://www.youtube.com/embed/'+s.yt+'?autoplay=1&mute=1&loop=1&playlist='+s.yt+'&controls=0&showinfo=0&rel=0&playsinline=1&disablekb=1&modestbranding=1" allow="autoplay" title="preview"></iframe>';
+      a.classList.add('playing');
+    });
+    a.addEventListener('mouseleave',()=>{a.classList.remove('playing');media.querySelector('.vid').innerHTML='';});
+  }
+  feed.appendChild(a);
+});
+
+const posts=[
+ {cat:"Industry News", t:"South Africa's Draft National AI Policy: What It Means for Creative Studios", rd:"5 min read",
+  body:["South Africa took its first formal step toward regulating artificial intelligence in 2026. In April, the Department of Communications and Digital Technologies published a Draft National Artificial Intelligence Policy, aimed at setting foundational guidelines for safe AI adoption.","The draft was withdrawn just over two weeks later after it emerged that parts contained fake, AI-hallucinated citations — a public reminder that AI-assisted work still needs human verification at every step.","At Digital Characters, this is the environment we already build for. Our hybrid human-plus-AI pipeline treats AI as a tool that amplifies our artists, not a black box that replaces their judgement. The takeaway for South African creators: build responsible AI practices into your workflow now."]},
+ {cat:"Industry News", t:"The African Animation Boom: Streaming Money Is Chasing Local Stories", rd:"4 min read",
+  body:["The continent's animation market is projected to grow at nearly 8% a year through 2034, and the broader African animation ecosystem was valued at around $15.71 billion in 2025.","Global platforms are moving in — Netflix's Supa Team 4 (Triggerfish) became the first African animated series on the platform; Disney partnered with Nigeria's Kugali on Iwájú.","This is exactly the gap Digital Characters was built to fill. AI-assisted pipelines are collapsing the old cost-and-time barrier — letting a lean, local team deliver broadcast-quality content on timelines that match what streamers want."]},
+ {cat:"AI Animation Trends", t:"Sora 2, Veo 3.1 and Seedance: Inside the 2026 AI Video Model Wars", rd:"6 min read",
+  body:["If 2024 was the year AI video generation arrived, 2026 is the year it became a war. OpenAI's Sora 2, Google's Veo 3.1 and ByteDance's Seedance 2.0 pushed generative video to cinema-grade quality.","Here's the part the headlines miss: none of these tools make a show on their own. Prompt-to-video is astonishing for concept boards and rapid iteration — but not a substitute for character consistency, story rhythm, or directed performance.","At Digital Characters, we treat these models as power tools in a directed pipeline, while our artists hold the wheel on story, character and final quality."]},
+ {cat:"AI Animation Trends", t:"How AI Is Cutting Animation Production Time by 60%", rd:"5 min read",
+  body:["Industry analysis in 2026 points to AI animation tools cutting production time by roughly 62% while holding studio-quality output.","The time comes from compressing the repetitive, labour-heavy stages: pre-visualisation, in-betweening and cleanup, rotoscoping, and background generation — not from replacing animators.","This is the exact pipeline Digital Characters runs, delivering two to three times the output at 40–50% lower cost, without the 'AI look' that comes from letting a generator run unsupervised."]},
+ {cat:"Industry News", t:"AI, Jobs and Provenance: Staying Human in Animation's Most Disruptive Year", rd:"5 min read",
+  body:["2026 forced the creative industry to confront hard questions. A CVL Economics study estimated ~118,500 U.S. film, TV and animation roles are likely to be reshaped by generative AI.","In May 2026, YouTube began automatically labelling AI-generated content using C2PA provenance standards.","The future belongs to human-led studios that use AI deliberately. Our artists direct every project, AI accelerates the bottlenecks, and creative accountability stays with people who can be named and credited."]}
+];
+const postsEl=document.getElementById('posts');
+posts.forEach((p,i)=>{
+  const r=document.createElement('div');
+  r.className='prow reveal';r.dataset.cursor='Read';
+  r.innerHTML='<div class="cat">'+String(i+1).padStart(2,'0')+'</div><div><div class="cat">'+p.cat+'</div><h3>'+p.t+'</h3></div><div class="rd">'+p.rd+'</div>';
+  r.addEventListener('click',()=>openArticle(i));
+  postsEl.appendChild(r);
+});
+
+const modal=document.getElementById('modal'),mcontent=document.getElementById('mcontent'),mbox=document.getElementById('mbox');
+function openVideo(id){mcontent.innerHTML='<div class="mvid"><iframe src="https://www.youtube.com/embed/'+id+'?autoplay=1&rel=0" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe></div>';mbox.querySelector('#mcontent').previousElementSibling;modal.classList.add('open');}
+function openArticle(i){const p=posts[i];mcontent.innerHTML='<div class="marticle"><div class="cat">'+p.cat+'</div><h2>'+p.t+'</h2>'+p.body.map(x=>'<p>'+x+'</p>').join('')+'</div>';modal.classList.add('open');}
+function closeModal(){modal.classList.remove('open');mcontent.innerHTML='';}
+document.getElementById('mclose').addEventListener('click',closeModal);
+modal.addEventListener('click',e=>{if(e.target===modal)closeModal();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+
+/* Preloader */
+(function(){
+  const t="Digital Characters";const el=document.getElementById('plText');
+  el.innerHTML=t.split('').map((c,i)=>'<span style="animation-delay:'+(i*0.03)+'s">'+(c===' '?'&nbsp;':c)+'</span>').join('');
+  window.addEventListener('load',()=>setTimeout(()=>document.getElementById('pre').classList.add('done'),700));
+  setTimeout(()=>document.getElementById('pre').classList.add('done'),2600);
+})();
+
+/* Cursor */
+(function(){
+  if(window.matchMedia('(pointer:coarse)').matches)return;
+  const cur=document.getElementById('cursor'),lbl=document.getElementById('cursorLbl');
+  let x=innerWidth/2,y=innerHeight/2,cx=x,cy=y;
+  addEventListener('mousemove',e=>{x=e.clientX;y=e.clientY;});
+  (function loop(){cx+=(x-cx)*.2;cy+=(y-cy)*.2;cur.style.transform='translate('+cx+'px,'+cy+'px) translate(-50%,-50%)';requestAnimationFrame(loop);})();
+  function bind(){document.querySelectorAll('[data-cursor]').forEach(el=>{
+    el.addEventListener('mouseenter',()=>{cur.classList.add('big');lbl.textContent=el.dataset.cursor;});
+    el.addEventListener('mouseleave',()=>cur.classList.remove('big'));
+  });}
+  bind();
+})();
+
+/* Reveal on scroll (native, robust) */
+(function(){
+  const els=document.querySelectorAll('.reveal');
+  if(!('IntersectionObserver' in window)){els.forEach(e=>e.classList.add('in'));return;}
+  const io=new IntersectionObserver((ents)=>{ents.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:.12,rootMargin:'0px 0px -6% 0px'});
+  els.forEach(e=>io.observe(e));
+  setTimeout(()=>els.forEach(e=>{if(e.getBoundingClientRect().top<innerHeight)e.classList.add('in');}),200);
+})();
+/* YouTube channel feed (auto-updates via youtube.php) */
+(function(){
+  var grid=document.getElementById('vgrid'); if(!grid) return;
+  var fb='<div class="vloading">See the latest on our <a href="https://www.youtube.com/@digitalcharacters3300" target="_blank" style="color:var(--accent)">YouTube channel &rarr;</a></div>';
+  fetch('youtube.php').then(function(r){return r.json();}).then(function(d){
+    if(!d.ok||!d.videos||!d.videos.length){grid.innerHTML=fb;return;}
+    grid.innerHTML='';
+    d.videos.slice(0,12).forEach(function(v){
+      var c=document.createElement('div');
+      c.className='vcard';
+      c.innerHTML='<div class="vthumb"><img loading="lazy" src="https://i.ytimg.com/vi/'+v.id+'/hqdefault.jpg" alt=""></div><div class="vtitle"></div>';
+      c.querySelector('.vtitle').textContent=v.title;
+      c.addEventListener('click',function(){openVideo(v.id);});
+      grid.appendChild(c);
+    });
+  }).catch(function(){grid.innerHTML=fb;});
+})();
+</script>
+</body>
+</html>
